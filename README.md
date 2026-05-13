@@ -70,7 +70,7 @@ Runs lint plus smoke tests: boot, agents-on-PATH, docker, node, signed git, port
 ## How it works
 
 - `lima.yaml` is the per-VM template. `bin/machine up <p>` runs `limactl create --name=<p> lima.yaml` if the VM doesn't exist, then `limactl start <p>`, then pushes the provision scripts (`provision/[0-9]*.sh`) and runs them as root inside the VM. Re-running `up` is safe: each script has a sentinel and exits early if already done.
-- Git config is rendered on the host from `files/git/*.tpl`, substituting your name/email and SSH signing pubkey (from `~/.ssh/id_ed25519.pub`), then pushed to the VM.
+- Git config is rendered on the host from `files/git/*.tpl`, substituting your name/email and SSH signing pubkey (from the host's `git config --global user.signingkey`), then pushed to the VM.
 - GitHub auth + commit signing both use the forwarded macOS SSH agent. Private keys never leave the host; the VM only sees signatures and `ssh -A` proxied auth.
 
 ## SSH agent
@@ -90,7 +90,8 @@ For the git signing pubkey, the resolution order is:
 
 1. `GIT_SIGNING_KEY=<literal pubkey string>`
 2. `OP_SIGNING_KEY_REF=op://Vault/Item/public_key` — fetched via `op read` (requires `op` CLI; triggers Touch ID once at `up` time)
-3. `GIT_SIGNING_PUBKEY_FILE=<path>` — defaults to `~/.ssh/id_ed25519.pub`
+3. `GIT_SIGNING_PUBKEY_FILE=<path>`
+4. Host `git config --global user.signingkey` — literal pubkey or path to a `.pub` file (default; whatever you sign host commits with)
 
 ## Threat model
 
@@ -101,7 +102,7 @@ No host filesystem is mounted. Each project gets its own VM, so a compromise of 
 | Env var | Default |
 |---|---|
 | `GIT_NAME` / `GIT_EMAIL` | from host `git config --global` |
-| `GIT_SIGNING_PUBKEY_FILE` | `~/.ssh/id_ed25519.pub` |
+| `GIT_SIGNING_PUBKEY_FILE` | path to a `.pub` file (overrides host `user.signingkey`) |
 | `GIT_SIGNING_KEY` | literal pubkey string (overrides everything) |
 | `OP_SIGNING_KEY_REF` | 1Password secret reference for the signing pubkey (e.g. `op://Personal/SSH/public key`) |
 | `MACHINE_USE_1PASSWORD` | set `=1` to forward 1Password's SSH agent instead of macOS Keychain |

@@ -119,7 +119,7 @@ run_provision_in_vm() {
 #   2. OP_SIGNING_KEY_REF  — 1Password secret reference, read via `op read`
 #                           (requires the 1Password CLI; triggers Touch ID)
 #   3. GIT_SIGNING_PUBKEY_FILE  — path to a .pub file
-#   4. ~/.ssh/id_ed25519.pub  — default
+#   4. host's `git config --global user.signingkey` (literal pubkey or path)
 read_signing_key() {
   if [ -n "${GIT_SIGNING_KEY:-}" ]; then
     printf '%s' "$GIT_SIGNING_KEY"
@@ -133,13 +133,35 @@ read_signing_key() {
     op read "$OP_SIGNING_KEY_REF" | tr -d '\n'
     return
   fi
-  local path="${GIT_SIGNING_PUBKEY_FILE:-$HOME/.ssh/id_ed25519.pub}"
-  if [ ! -r "$path" ]; then
-    echo "machine: signing pubkey not readable at $path" >&2
-    echo "  Override with GIT_SIGNING_PUBKEY_FILE=<path>, GIT_SIGNING_KEY=<literal>, or OP_SIGNING_KEY_REF=op://..." >&2
+  if [ -n "${GIT_SIGNING_PUBKEY_FILE:-}" ]; then
+    if [ ! -r "$GIT_SIGNING_PUBKEY_FILE" ]; then
+      echo "machine: GIT_SIGNING_PUBKEY_FILE not readable at $GIT_SIGNING_PUBKEY_FILE" >&2
+      return 1
+    fi
+    tr -d '\n' < "$GIT_SIGNING_PUBKEY_FILE"
+    return
+  fi
+  # Host git config: value may be a literal pubkey (modern git, ssh format)
+  # or a path to a .pub file. `key::` prefix means "literal, not a path".
+  local host_key
+  host_key="$(git config --global user.signingkey 2>/dev/null || true)"
+  if [ -z "$host_key" ]; then
+    echo "machine: no signing pubkey found" >&2
+    echo "  Set one on the host: git config --global user.signingkey 'ssh-ed25519 AAAA...'" >&2
+    echo "  Or override per-invocation: GIT_SIGNING_KEY=<literal>, GIT_SIGNING_PUBKEY_FILE=<path>, OP_SIGNING_KEY_REF=op://..." >&2
     return 1
   fi
-  tr -d '\n' < "$path"
+  case "$host_key" in
+    key::*)  printf '%s' "${host_key#key::}" ;;
+    ssh-*|ecdsa-*|sk-ssh-*|sk-ecdsa-*)
+             printf '%s' "$host_key" ;;
+    *)       if [ -r "$host_key" ]; then
+               tr -d '\n' < "$host_key"
+             else
+               echo "machine: host user.signingkey is not a literal pubkey and not a readable file: $host_key" >&2
+               return 1
+             fi ;;
+  esac
 }
 
 render_git_templates() {
