@@ -2,13 +2,10 @@
 
 A reproducible Lima VM per GitHub project, with Docker, Node, agent CLIs (Claude Code, Codex), signed git, and Cypress preinstalled. Each project lives in its own VM so they can't see each other and the host filesystem isn't mounted.
 
-Forked from a 1Password-bound team setup; this version uses the macOS SSH agent (Keychain-loaded keys) and keeps project secrets as plain `.env` files inside the VM.
-
 ## Prerequisites
 
 ```sh
 brew install lima
-brew install shellcheck    # optional, for tests/lint.sh
 ```
 
 - An SSH key on the host, loaded into the macOS Keychain so the default agent serves it:
@@ -21,7 +18,7 @@ brew install shellcheck    # optional, for tests/lint.sh
 ## Setup
 
 ```sh
-git clone <this repo> ~/Sites/machine
+git clone git@github.com:katspaugh/machine.git ~/Sites/machine
 cd ~/Sites/machine
 cp projects.list.example projects.list
 $EDITOR projects.list      # add: <name> = <git-url>
