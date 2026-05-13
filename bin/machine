@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-PROJECTS_FILE="${PROJECTS_FILE:-$REPO/projects.list}"
+PROJECTS_FILE="${PROJECTS_FILE:-$REPO/projects.toml}"
 
 # SSH agent selection. Default: leave SSH_AUTH_SOCK alone (macOS's launchd
 # agent, which serves keys loaded via `ssh-add --apple-use-keychain`).
@@ -25,45 +25,66 @@ usage() {
 Usage: machine <command> [<project>] [args...]
 
 Commands:
-  list                    List projects from projects.list
-  up <project>            Create (if needed) + start + provision + clone the project repo
+  list                    List projects from projects.toml
+  up <project>            Create (if needed) + start + provision + clone the project repo(s)
   down <project>          Stop the VM
-  ssh <project>           Open an interactive shell (cwd = ~/code/<repo>)
+  ssh <project>           Open an interactive shell (cwd = ~/code/<primary-repo>)
   run <project> <cmd>...  Run a non-interactive command in the VM
+  secrets <p> [<repo>]    Render 1Password Environment(s) into VM tmpfs
   status <project>        Print status
   destroy <project>       Delete the VM (irreversible)
   rebuild <project>       Destroy + up (reproducibility test)
-  update <project>        Refresh in-place (apt upgrade, mise upgrade, npm globals, claude installer)
+  update <project>        Refresh in-place (apt upgrade, npm globals, claude installer)
 
-Project = a line in projects.list of the form:  <name> = <git-url>
-The VM is named after <name>. The repo is cloned into ~/code/<basename(<git-url>)>/.
+projects.toml entries take this shape:
+
+  default_profile = "cypress"     # applied when a project doesn't set profiles
+
+  [<name>]
+  repos    = ["git@github.com:org/repo.git", ...]
+  profiles = ["cypress", "supabase-fly"]   # optional; defaults to [default_profile]
+
+Profiles live in profiles/<name>.toml and stack on top of provision.toml.
 EOF
 }
 
-# Resolve a project name to its git URL by reading projects.list.
-project_url() {
+# --- TOML helpers (delegate to python3 -- already on macOS) -----------------
+
+# Print every URL in the project's `repos` list, one per line.
+project_urls() {
   local name="$1"
   [ -f "$PROJECTS_FILE" ] || {
-    echo "machine: $PROJECTS_FILE not found. Copy projects.list.example and edit." >&2
+    echo "machine: $PROJECTS_FILE not found. Copy projects.toml.example and edit." >&2
     return 1
   }
-  local url
-  url=$(awk -v n="$name" '
-    /^[[:space:]]*#/ { next }
-    /^[[:space:]]*$/ { next }
-    {
-      sub(/[[:space:]]*#.*$/, "")           # strip trailing comments
-      sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, "")
-      if (split($0, p, /[[:space:]]*=[[:space:]]*/) == 2 && p[1] == n) {
-        print p[2]; exit
-      }
-    }
-  ' "$PROJECTS_FILE")
-  if [ -z "$url" ]; then
-    echo "machine: project '$name' not in $PROJECTS_FILE" >&2
-    return 1
-  fi
-  printf '%s\n' "$url"
+  python3 - "$name" "$PROJECTS_FILE" <<'PY'
+import sys, tomllib
+name, path = sys.argv[1], sys.argv[2]
+cfg = tomllib.loads(open(path).read())
+project = cfg.get(name)
+if not isinstance(project, dict):
+    sys.exit(f"machine: project '{name}' not in {path}")
+for url in project.get("repos", []):
+    print(url)
+PY
+}
+
+# Print the profile names that should stack onto provision.toml for this project.
+project_profiles() {
+  local name="$1"
+  [ -f "$PROJECTS_FILE" ] || return 1
+  python3 - "$name" "$PROJECTS_FILE" <<'PY'
+import sys, tomllib
+name, path = sys.argv[1], sys.argv[2]
+cfg = tomllib.loads(open(path).read())
+project = cfg.get(name) or {}
+default = cfg.get("default_profile")
+profiles = project.get("profiles")
+if profiles is None:
+    profiles = [default] if default else []
+for p in profiles:
+    print(p)
+PY
 }
 
 # Basename of a git URL, minus the .git suffix.
@@ -80,39 +101,61 @@ validate_name() {
   fi
 }
 
+# --- File push to the VM ---------------------------------------------------
+
+# Push provision.toml, selected profile TOMLs, the dispatcher, and the files/
+# tree (direnv helper, git templates, profile.d snippets) into /opt/dev-vm/
+# inside the VM.
 push_files_to_vm() {
-  local name="$1"
-  limactl shell "$name" -- sudo tee /opt/dev-vm/lib/_lib.sh < "$REPO/provision/_lib.sh" >/dev/null
-  limactl shell "$name" -- sudo chmod 0644 /opt/dev-vm/lib/_lib.sh
-  for f in "$REPO"/provision/[0-9]*.sh; do
-    [ -f "$f" ] || continue
-    local base; base=$(basename "$f")
-    limactl shell "$name" -- sudo tee "/opt/dev-vm/provision-runtime/$base" < "$f" >/dev/null
-    limactl shell "$name" -- sudo chmod 0755 "/opt/dev-vm/provision-runtime/$base"
+  local vm="$1"; shift
+  local profiles=("$@")
+
+  limactl shell "$vm" -- sudo mkdir -p \
+    /opt/dev-vm/profiles \
+    /opt/dev-vm/provision \
+    /opt/dev-vm/files/direnv \
+    /opt/dev-vm/files/git \
+    /opt/dev-vm/files/profile.d
+
+  # Base provision config + dispatcher.
+  limactl shell "$vm" -- sudo tee /opt/dev-vm/provision.toml \
+    < "$REPO/provision.toml" >/dev/null
+  limactl shell "$vm" -- sudo tee /opt/dev-vm/provision/run.py \
+    < "$REPO/provision/run.py" >/dev/null
+  limactl shell "$vm" -- sudo chmod 0755 /opt/dev-vm/provision/run.py
+
+  # Only push the profiles this project actually uses.
+  for p in "${profiles[@]}"; do
+    [ -n "$p" ] || continue
+    local src="$REPO/profiles/$p.toml"
+    [ -f "$src" ] || { echo "machine: missing profile file $src" >&2; return 1; }
+    limactl shell "$vm" -- sudo tee "/opt/dev-vm/profiles/$p.toml" < "$src" >/dev/null
   done
+
+  # files/ tree (everything under files/ except dynamically-rendered git stuff
+  # — that gets pushed separately by render_git_templates).
   shopt -s nullglob
-  for f in "$REPO"/files/git/*; do
+  for f in "$REPO"/files/direnv/* "$REPO"/files/profile.d/*; do
     [ -f "$f" ] || continue
     local rel="${f#"$REPO"/files/}"
-    local dir
-    dir="/opt/dev-vm/files/$(dirname "$rel")"
-    limactl shell "$name" -- sudo mkdir -p "$dir"
-    limactl shell "$name" -- sudo tee "/opt/dev-vm/files/$rel" < "$f" >/dev/null
+    limactl shell "$vm" -- sudo tee "/opt/dev-vm/files/$rel" < "$f" >/dev/null
   done
 }
 
+# Invoke the dispatcher with the base config and any profile configs.
 run_provision_in_vm() {
-  local name="$1"
-  # shellcheck disable=SC2016  # single quotes intentional: script runs inside VM
-  limactl shell "$name" -- sudo bash -c '
-    set -e
-    shopt -s nullglob
-    for s in /opt/dev-vm/provision-runtime/[0-9]*.sh; do
-      echo "[provision] $s"
-      bash "$s"
-    done
-  '
+  local vm="$1"; shift
+  local profiles=("$@")
+  local args="/opt/dev-vm/provision.toml"
+  for p in "${profiles[@]}"; do
+    [ -n "$p" ] || continue
+    args="$args /opt/dev-vm/profiles/$p.toml"
+  done
+  # shellcheck disable=SC2086  # word-splitting on $args is intentional
+  limactl shell "$vm" -- sudo python3 /opt/dev-vm/provision/run.py $args
 }
+
+# --- Git template rendering (host-side) -------------------------------------
 
 # Read the SSH signing pubkey. Resolution order:
 #   1. GIT_SIGNING_KEY  — literal pubkey string (wins outright)
@@ -141,8 +184,6 @@ read_signing_key() {
     tr -d '\n' < "$GIT_SIGNING_PUBKEY_FILE"
     return
   fi
-  # Host git config: value may be a literal pubkey (modern git, ssh format)
-  # or a path to a .pub file. `key::` prefix means "literal, not a path".
   local host_key
   host_key="$(git config --global user.signingkey 2>/dev/null || true)"
   if [ -z "$host_key" ]; then
@@ -165,7 +206,7 @@ read_signing_key() {
 }
 
 render_git_templates() {
-  local name="$1"
+  local vm="$1"
   local gname email sigkey
   gname="${GIT_NAME:-$(git config --global user.name || true)}"
   email="${GIT_EMAIL:-$(git config --global user.email || true)}"
@@ -173,9 +214,8 @@ render_git_templates() {
   [ -n "$gname" ] && [ -n "$email" ] && [ -n "$sigkey" ] \
     || { echo "machine: missing git name/email/signing key" >&2; return 1; }
 
-  local out="$REPO/.build/$name/git"
+  local out="$REPO/.build/$vm/git"
   mkdir -p "$out"
-  # Use a delimiter unlikely in any of the inputs.
   sed -e "s|__GIT_NAME__|$gname|g" \
       -e "s|__GIT_EMAIL__|$email|g" \
       -e "s|__GIT_SIGNING_KEY__|$sigkey|g" \
@@ -184,45 +224,64 @@ render_git_templates() {
       -e "s|__GIT_SIGNING_KEY__|$sigkey|g" \
       "$REPO/files/git/allowed_signers.tpl" > "$out/allowed_signers"
 
-  limactl shell "$name" -- sudo mkdir -p /opt/dev-vm/files/git
-  limactl shell "$name" -- sudo tee /opt/dev-vm/files/git/gitconfig < "$out/gitconfig" >/dev/null
-  limactl shell "$name" -- sudo tee /opt/dev-vm/files/git/allowed_signers < "$out/allowed_signers" >/dev/null
+  limactl shell "$vm" -- sudo mkdir -p /opt/dev-vm/files/git
+  limactl shell "$vm" -- sudo tee /opt/dev-vm/files/git/gitconfig < "$out/gitconfig" >/dev/null
+  limactl shell "$vm" -- sudo tee /opt/dev-vm/files/git/allowed_signers < "$out/allowed_signers" >/dev/null
 }
+
+# --- Project commands -------------------------------------------------------
 
 cmd_list() {
   if [ ! -f "$PROJECTS_FILE" ]; then
-    echo "no $PROJECTS_FILE — copy projects.list.example and edit"
+    echo "no $PROJECTS_FILE — copy projects.toml.example and edit"
     return 0
   fi
-  awk '
-    /^[[:space:]]*#/ { next }
-    /^[[:space:]]*$/ { next }
-    {
-      sub(/[[:space:]]*#.*$/, "")
-      sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, "")
-      if (split($0, p, /[[:space:]]*=[[:space:]]*/) == 2) {
-        printf "%-20s  %s\n", p[1], p[2]
-      }
-    }
-  ' "$PROJECTS_FILE"
+  python3 - "$PROJECTS_FILE" <<'PY'
+import sys, tomllib
+cfg = tomllib.loads(open(sys.argv[1]).read())
+default = cfg.get("default_profile")
+for name, project in cfg.items():
+    if not isinstance(project, dict):
+        continue
+    repos = project.get("repos", [])
+    profiles = project.get("profiles", [default] if default else [])
+    profile_str = ",".join(p for p in profiles if p) or "-"
+    primary = repos[0] if repos else "-"
+    extra = f" (+{len(repos)-1})" if len(repos) > 1 else ""
+    print(f"{name:<20}  [{profile_str}]  {primary}{extra}")
+PY
 }
 
 cmd_up() {
   local name="${1:?usage: machine up <project>}"
   validate_name "$name"
-  local url; url=$(project_url "$name")
+  local urls profiles
+  urls=$(project_urls "$name")
+  profiles=$(project_profiles "$name")
 
   if ! limactl list -q | grep -qx "$name"; then
     limactl create --name="$name" "$REPO/lima.yaml"
   fi
   limactl start "$name"
-  push_files_to_vm "$name"
+
+  # Read profiles into an array (newline-separated).
+  local profile_arr=()
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    profile_arr+=("$p")
+  done <<< "$profiles"
+
+  push_files_to_vm "$name" "${profile_arr[@]}"
   render_git_templates "$name"
-  run_provision_in_vm "$name"
-  clone_repo "$name" "$url"
+  run_provision_in_vm "$name" "${profile_arr[@]}"
+
+  while IFS= read -r url; do
+    [ -n "$url" ] || continue
+    clone_repo "$name" "$url"
+  done <<< "$urls"
 }
 
-# Clone the project repo into ~/code/<basename>/ inside the VM. Idempotent.
+# Clone one repo into ~/code/<basename>/ inside the VM. Idempotent.
 clone_repo() {
   local name="$1" url="$2"
   local repo_name; repo_name=$(repo_basename "$url")
@@ -232,7 +291,6 @@ clone_repo() {
     return 0
   fi
   echo "[clone] $repo_name from $url"
-  # accept-new auto-trusts unknown host keys on first clone but rejects mismatches.
   limactl shell "$name" -- env GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" \
     bash -lc "mkdir -p \$HOME/code && cd \$HOME/code && git clone --recurse-submodules $url" </dev/null
 
@@ -261,10 +319,9 @@ cmd_down() {
 
 cmd_ssh() {
   local name="${1:?usage: machine ssh <project>}"
-  local url; url=$(project_url "$name" 2>/dev/null || true)
+  local url; url=$(project_urls "$name" 2>/dev/null | head -1 || true)
   if [ -n "$url" ]; then
     local repo_name; repo_name=$(repo_basename "$url")
-    # If the repo dir exists, drop into it; otherwise plain ssh.
     if limactl shell "$name" -- bash -lc "[ -d \"\$HOME/code/$repo_name\" ]" </dev/null 2>/dev/null; then
       exec limactl shell --workdir "/home/$USER.linux/code/$repo_name" "$name"
     fi
@@ -288,8 +345,8 @@ cmd_destroy() {
 cmd_rebuild() {
   local name="${1:?usage: machine rebuild <project>}"
   cat <<EOF
-This will DESTROY the VM '$name' (cloned repo, branches, mise installs,
-shell history) and recreate it from scratch.
+This will DESTROY the VM '$name' (cloned repos, branches, shell history) and
+recreate it from scratch.
 
 To refresh in place without losing state, use:  machine update $name
 EOF
@@ -318,8 +375,6 @@ cmd_update() {
   # shellcheck disable=SC2016  # body runs inside the VM
   limactl shell "$name" -- bash -lc '
     set -e
-    mise self-update -y || true
-    mise upgrade --bump || mise upgrade || true
     corepack prepare pnpm@latest --activate
     npm update -g @openai/codex typescript typescript-language-server
     curl -fsSL https://claude.ai/install.sh | bash
@@ -332,6 +387,76 @@ cmd_update() {
   echo "update OK"
 }
 
+# --- Secrets command (unchanged from previous version) ----------------------
+
+extract_env_id() {
+  local vm="$1" envrc_path="$2"
+  limactl shell "$vm" -- bash -lc "grep -oE 'use[[:space:]]+op_env[[:space:]]+[a-z0-9]+' '$envrc_path' 2>/dev/null | awk '{print \$3}' | head -1"
+}
+
+sync_one_env() {
+  local vm="$1" env_id="$2" repo="$3"
+  echo "[secrets] $repo ($env_id)"
+  local rendered
+  rendered=$(op environment read "$env_id" --no-masking 2>&1) || {
+    echo "  failed: $rendered" >&2
+    return 1
+  }
+  # shellcheck disable=SC2016  # script body runs inside the VM
+  printf '%s\n' "$rendered" | limactl shell "$vm" -- bash -c '
+    set -e
+    dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dev-secrets"
+    mkdir -p "$dir"; chmod 700 "$dir"
+    cache="$dir/$1.env"
+    cat > "$cache"
+    chmod 600 "$cache"
+  ' bash "$env_id"
+}
+
+cmd_secrets() {
+  local name="${1:?usage: machine secrets <project> [<repo>]}"
+  local target_repo="${2:-}"
+  command -v op >/dev/null || {
+    echo "machine: 'op' CLI required (brew install 1password-cli)" >&2
+    return 1
+  }
+
+  local count=0
+  local envrcs
+  # shellcheck disable=SC2016  # script body runs inside the VM
+  envrcs=$(limactl shell "$name" -- bash -lc '
+    find ~/code -mindepth 2 -maxdepth 3 -name .envrc -type f 2>/dev/null
+  ')
+
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    local repo
+    repo=$(basename "$(dirname "$path")")
+    if [ -n "$target_repo" ] && [ "$target_repo" != "$repo" ]; then
+      continue
+    fi
+    local env_id
+    env_id=$(extract_env_id "$name" "$path")
+    if [ -z "$env_id" ]; then
+      [ -n "$target_repo" ] && echo "no 'use op_env <id>' line in $path" >&2
+      continue
+    fi
+    sync_one_env "$name" "$env_id" "$repo" && count=$((count + 1))
+  done <<< "$envrcs"
+
+  if [ "$count" -eq 0 ]; then
+    if [ -n "$target_repo" ]; then
+      echo "no .envrc found for repo '$target_repo' in VM '$name' (expected ~/code/$target_repo/.envrc)" >&2
+    else
+      echo "no repos with 'use op_env' .envrc found under ~/code in VM '$name'" >&2
+    fi
+    return 1
+  fi
+  echo "synced $count environment(s)"
+}
+
+# --- Dispatch ---------------------------------------------------------------
+
 case "${1:-}" in
   list)     shift; cmd_list "$@" ;;
   up)       shift; cmd_up "$@" ;;
@@ -341,6 +466,7 @@ case "${1:-}" in
   destroy)  shift; cmd_destroy "$@" ;;
   rebuild)  shift; cmd_rebuild "$@" ;;
   run)      shift; cmd_run "$@" ;;
+  secrets)  shift; cmd_secrets "$@" ;;
   update)   shift; cmd_update "$@" ;;
   ""|-h|--help) usage ;;
   *) usage; exit 1 ;;

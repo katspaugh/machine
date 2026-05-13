@@ -1,0 +1,32 @@
+# `machine`'s project list. Copy to projects.toml and edit. projects.toml is gitignored.
+#
+# Schema:
+#   default_profile = "<name>"        # optional. Used when a project omits `profiles`.
+#
+#   [<project-name>]                  # becomes the Lima VM name (a-z, 0-9, hyphen).
+#   repos    = ["git@github.com:org/repo.git", ...]
+#   profiles = ["cypress", ...]       # optional. Stacks on top of provision.toml.
+#
+# Profile TOMLs live in profiles/<name>.toml.
+# Each repo is cloned into ~/code/<basename(<git-url>)>/ inside the VM.
+# With multiple repos, the first is the "primary" — `machine ssh <name>` opens at its dir.
+
+default_profile = "cypress"
+
+# Single-repo project; uses [default_profile].
+# [blog]
+# repos = ["git@github.com:you/blog.git"]
+
+# Multi-repo project: sibling-clones so a dockerized dev env can bind-mount peers.
+# [wallet]
+# profiles = ["cypress"]
+# repos = [
+#   "git@github.com:you/safe-wallet-dev-env.git",
+#   "git@github.com:you/safe-wallet-monorepo.git",
+#   "git@github.com:you/safe-client-gateway.git",
+# ]
+
+# Project with multiple profiles stacked.
+# [playground]
+# profiles = ["cypress", "supabase-fly"]
+# repos = ["git@github.com:you/playground.git"]

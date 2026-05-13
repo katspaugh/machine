@@ -7,4 +7,5 @@ lima.local.yaml
 *.swp
 .idea/
 .vscode/
+projects.toml
 projects.list
