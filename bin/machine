@@ -278,6 +278,11 @@ cmd_update() {
     corepack prepare pnpm@latest --activate
     npm update -g @openai/codex typescript typescript-language-server
     curl -fsSL https://claude.ai/install.sh | bash
+    # Refresh the plugin marketplace and update each installed plugin.
+    claude plugin marketplace update claude-plugins-official 2>/dev/null || true
+    for p in $(claude plugin list 2>/dev/null | awk "NR>1 {print \$1}"); do
+      claude plugin update "$p" 2>/dev/null || true
+    done
   '
   echo "update OK"
 }
