@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECTS_FILE="${PROJECTS_FILE:-$REPO/projects.list}"
+
+# Default macOS ssh-agent (it forwards keys you've loaded with
+# `ssh-add --apple-use-keychain`). Override with SSH_AUTH_SOCK if you use a
+# different agent.
+
+usage() {
+  cat <<EOF
+Usage: machine <command> [<project>] [args...]
+
+Commands:
+  list                    List projects from projects.list
+  up <project>            Create (if needed) + start + provision + clone the project repo
+  down <project>          Stop the VM
+  ssh <project>           Open an interactive shell (cwd = ~/code/<repo>)
+  run <project> <cmd>...  Run a non-interactive command in the VM
+  status <project>        Print status
+  destroy <project>       Delete the VM (irreversible)
+  rebuild <project>       Destroy + up (reproducibility test)
+  update <project>        Refresh in-place (apt upgrade, mise upgrade, npm globals, claude installer)
+
+Project = a line in projects.list of the form:  <name> = <git-url>
+The VM is named after <name>. The repo is cloned into ~/code/<basename(<git-url>)>/.
+EOF
+}
+
+# Resolve a project name to its git URL by reading projects.list.
+project_url() {
+  local name="$1"
+  [ -f "$PROJECTS_FILE" ] || {
+    echo "machine: $PROJECTS_FILE not found. Copy projects.list.example and edit." >&2
+    return 1
+  }
+  local url
+  url=$(awk -v n="$name" '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+      sub(/[[:space:]]*#.*$/, "")           # strip trailing comments
+      sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, "")
+      if (split($0, p, /[[:space:]]*=[[:space:]]*/) == 2 && p[1] == n) {
+        print p[2]; exit
+      }
+    }
+  ' "$PROJECTS_FILE")
+  if [ -z "$url" ]; then
+    echo "machine: project '$name' not in $PROJECTS_FILE" >&2
+    return 1
+  fi
+  printf '%s\n' "$url"
+}
+
+# Basename of a git URL, minus the .git suffix.
+repo_basename() {
+  basename -s .git "$1"
+}
+
+# Validate a Lima VM name (a-z 0-9 hyphen, starting alphanumeric).
+validate_name() {
+  local name="$1"
+  if ! [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    echo "machine: invalid project name '$name' (use a-z, 0-9, hyphen)" >&2
+    return 1
+  fi
+}
+
+push_files_to_vm() {
+  local name="$1"
+  limactl shell "$name" -- sudo tee /opt/dev-vm/lib/_lib.sh < "$REPO/provision/_lib.sh" >/dev/null
+  limactl shell "$name" -- sudo chmod 0644 /opt/dev-vm/lib/_lib.sh
+  for f in "$REPO"/provision/[0-9]*.sh; do
+    [ -f "$f" ] || continue
+    local base; base=$(basename "$f")
+    limactl shell "$name" -- sudo tee "/opt/dev-vm/provision-runtime/$base" < "$f" >/dev/null
+    limactl shell "$name" -- sudo chmod 0755 "/opt/dev-vm/provision-runtime/$base"
+  done
+  shopt -s nullglob
+  for f in "$REPO"/files/git/*; do
+    [ -f "$f" ] || continue
+    local rel="${f#"$REPO"/files/}"
+    local dir
+    dir="/opt/dev-vm/files/$(dirname "$rel")"
+    limactl shell "$name" -- sudo mkdir -p "$dir"
+    limactl shell "$name" -- sudo tee "/opt/dev-vm/files/$rel" < "$f" >/dev/null
+  done
+}
+
+run_provision_in_vm() {
+  local name="$1"
+  # shellcheck disable=SC2016  # single quotes intentional: script runs inside VM
+  limactl shell "$name" -- sudo bash -c '
+    set -e
+    shopt -s nullglob
+    for s in /opt/dev-vm/provision-runtime/[0-9]*.sh; do
+      echo "[provision] $s"
+      bash "$s"
+    done
+  '
+}
+
+# Read the SSH signing pubkey from disk. Default: ~/.ssh/id_ed25519.pub.
+# Override with GIT_SIGNING_PUBKEY_FILE (path) or GIT_SIGNING_KEY (literal).
+read_signing_key() {
+  if [ -n "${GIT_SIGNING_KEY:-}" ]; then
+    printf '%s' "$GIT_SIGNING_KEY"
+    return
+  fi
+  local path="${GIT_SIGNING_PUBKEY_FILE:-$HOME/.ssh/id_ed25519.pub}"
+  if [ ! -r "$path" ]; then
+    echo "machine: signing pubkey not readable at $path" >&2
+    echo "  Override with GIT_SIGNING_PUBKEY_FILE=<path> or GIT_SIGNING_KEY=<literal>" >&2
+    return 1
+  fi
+  # Strip trailing newline.
+  tr -d '\n' < "$path"
+}
+
+render_git_templates() {
+  local name="$1"
+  local gname email sigkey
+  gname="${GIT_NAME:-$(git config --global user.name || true)}"
+  email="${GIT_EMAIL:-$(git config --global user.email || true)}"
+  sigkey=$(read_signing_key)
+  [ -n "$gname" ] && [ -n "$email" ] && [ -n "$sigkey" ] \
+    || { echo "machine: missing git name/email/signing key" >&2; return 1; }
+
+  local out="$REPO/.build/$name/git"
+  mkdir -p "$out"
+  # Use a delimiter unlikely in any of the inputs.
+  sed -e "s|__GIT_NAME__|$gname|g" \
+      -e "s|__GIT_EMAIL__|$email|g" \
+      -e "s|__GIT_SIGNING_KEY__|$sigkey|g" \
+      "$REPO/files/git/gitconfig.tpl" > "$out/gitconfig"
+  sed -e "s|__GIT_EMAIL__|$email|g" \
+      -e "s|__GIT_SIGNING_KEY__|$sigkey|g" \
+      "$REPO/files/git/allowed_signers.tpl" > "$out/allowed_signers"
+
+  limactl shell "$name" -- sudo mkdir -p /opt/dev-vm/files/git
+  limactl shell "$name" -- sudo tee /opt/dev-vm/files/git/gitconfig < "$out/gitconfig" >/dev/null
+  limactl shell "$name" -- sudo tee /opt/dev-vm/files/git/allowed_signers < "$out/allowed_signers" >/dev/null
+}
+
+cmd_list() {
+  if [ ! -f "$PROJECTS_FILE" ]; then
+    echo "no $PROJECTS_FILE — copy projects.list.example and edit"
+    return 0
+  fi
+  awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+      sub(/[[:space:]]*#.*$/, "")
+      sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, "")
+      if (split($0, p, /[[:space:]]*=[[:space:]]*/) == 2) {
+        printf "%-20s  %s\n", p[1], p[2]
+      }
+    }
+  ' "$PROJECTS_FILE"
+}
+
+cmd_up() {
+  local name="${1:?usage: machine up <project>}"
+  validate_name "$name"
+  local url; url=$(project_url "$name")
+
+  if ! limactl list -q | grep -qx "$name"; then
+    limactl create --name="$name" "$REPO/lima.yaml"
+  fi
+  limactl start "$name"
+  push_files_to_vm "$name"
+  render_git_templates "$name"
+  run_provision_in_vm "$name"
+  clone_repo "$name" "$url"
+}
+
+# Clone the project repo into ~/code/<basename>/ inside the VM. Idempotent.
+clone_repo() {
+  local name="$1" url="$2"
+  local repo_name; repo_name=$(repo_basename "$url")
+
+  if limactl shell "$name" -- bash -lc "[ -d \"\$HOME/code/$repo_name/.git\" ]" </dev/null; then
+    echo "[clone] $repo_name: already present (skip)"
+    return 0
+  fi
+  echo "[clone] $repo_name from $url"
+  # accept-new auto-trusts unknown host keys on first clone but rejects mismatches.
+  limactl shell "$name" -- env GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" \
+    bash -lc "mkdir -p \$HOME/code && cd \$HOME/code && git clone --recurse-submodules $url" </dev/null
+
+  # Install JS deps if package.json is present. Try yarn first (most common in
+  # repos with packageManager pinned), fall back to npm install.
+  limactl shell "$name" -- bash -lc "
+    cd \$HOME/code/$repo_name 2>/dev/null || exit 0
+    [ -f package.json ] || exit 0
+    if grep -q '\"packageManager\":[[:space:]]*\"yarn' package.json 2>/dev/null; then
+      echo '[deps] yarn install'
+      yarn install
+    elif grep -q '\"packageManager\":[[:space:]]*\"pnpm' package.json 2>/dev/null; then
+      echo '[deps] pnpm install'
+      pnpm install
+    else
+      echo '[deps] npm install'
+      npm install
+    fi
+  " </dev/null || echo "[deps] $repo_name: install failed (continuing)"
+}
+
+cmd_down() {
+  local name="${1:?usage: machine down <project>}"
+  limactl stop "$name"
+}
+
+cmd_ssh() {
+  local name="${1:?usage: machine ssh <project>}"
+  local url; url=$(project_url "$name" 2>/dev/null || true)
+  if [ -n "$url" ]; then
+    local repo_name; repo_name=$(repo_basename "$url")
+    # If the repo dir exists, drop into it; otherwise plain ssh.
+    if limactl shell "$name" -- bash -lc "[ -d \"\$HOME/code/$repo_name\" ]" </dev/null 2>/dev/null; then
+      exec limactl shell --workdir "/home/$USER.linux/code/$repo_name" "$name"
+    fi
+  fi
+  exec limactl shell "$name"
+}
+
+cmd_status() {
+  local name="${1:?usage: machine status <project>}"
+  limactl list "$name"
+}
+
+cmd_destroy() {
+  local name="${1:?usage: machine destroy <project>}"
+  read -r -p "Destroy VM '$name'? [y/N] " ans
+  [ "$ans" = "y" ] || { echo "aborted"; exit 1; }
+  limactl stop -f "$name" 2>/dev/null || true
+  limactl delete "$name"
+}
+
+cmd_rebuild() {
+  local name="${1:?usage: machine rebuild <project>}"
+  cat <<EOF
+This will DESTROY the VM '$name' (cloned repo, branches, mise installs,
+shell history) and recreate it from scratch.
+
+To refresh in place without losing state, use:  machine update $name
+EOF
+  read -r -p "Type the VM name '$name' to confirm: " ans
+  [ "$ans" = "$name" ] || { echo "aborted"; exit 1; }
+  limactl stop -f "$name" 2>/dev/null || true
+  limactl delete "$name" 2>/dev/null || true
+  cmd_up "$name"
+}
+
+cmd_run() {
+  local name="${1:?usage: machine run <project> <cmd>...}"; shift
+  limactl shell "$name" -- "$@"
+}
+
+cmd_update() {
+  local name="${1:?usage: machine update <project>}"
+  # shellcheck disable=SC2016  # body runs inside the VM
+  limactl shell "$name" -- sudo bash -c '
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get -y upgrade
+    apt-get -y autoremove
+  '
+  # shellcheck disable=SC2016  # body runs inside the VM
+  limactl shell "$name" -- bash -lc '
+    set -e
+    mise self-update -y || true
+    mise upgrade --bump || mise upgrade || true
+    corepack prepare pnpm@latest --activate
+    npm update -g @openai/codex typescript typescript-language-server
+    curl -fsSL https://claude.ai/install.sh | bash
+  '
+  echo "update OK"
+}
+
+case "${1:-}" in
+  list)     shift; cmd_list "$@" ;;
+  up)       shift; cmd_up "$@" ;;
+  down)     shift; cmd_down "$@" ;;
+  ssh)      shift; cmd_ssh "$@" ;;
+  status)   shift; cmd_status "$@" ;;
+  destroy)  shift; cmd_destroy "$@" ;;
+  rebuild)  shift; cmd_rebuild "$@" ;;
+  run)      shift; cmd_run "$@" ;;
+  update)   shift; cmd_update "$@" ;;
+  ""|-h|--help) usage ;;
+  *) usage; exit 1 ;;
+esac

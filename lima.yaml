@@ -1,0 +1,45 @@
+vmType: vz
+vmOpts:
+  vz:
+    rosetta:
+      enabled: true
+      binfmt: true
+
+cpus: 4
+memory: "8GiB"
+disk: "60GiB"
+
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+
+# No host filesystem visible to the guest. Each project gets its own VM, so
+# there's no cross-project leakage even via shared host paths.
+mounts: []
+
+ssh:
+  forwardAgent: true
+  loadDotSSHPubKeys: false
+
+portForwards:
+  - guestPortRange: [3000, 3010]
+    hostIP: 127.0.0.1
+  - guestPortRange: [4200, 4200]
+    hostIP: 127.0.0.1
+  - guestPortRange: [5173, 5180]
+    hostIP: 127.0.0.1
+  - guestPortRange: [8080, 8099]
+    hostIP: 127.0.0.1
+
+provision:
+  - mode: system
+    script: |
+      set -e
+      mkdir -p /opt/dev-vm/lib /opt/dev-vm/files /opt/dev-vm/provision-runtime
+  # Provision scripts are NOT run from lima.yaml — bin/machine pushes fresh
+  # copies and runs them so changes land without a full rebuild.
+
+hostResolver:
+  enabled: true

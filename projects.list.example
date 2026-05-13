@@ -1,0 +1,10 @@
+# One project per line:  <name> = <git-url>
+# - <name> becomes the Lima VM name (a-z, 0-9, hyphen).
+# - <git-url> is cloned into ~/code/<name>/ inside the VM. Use SSH form so the
+#   forwarded macOS SSH agent handles auth.
+# Comments (#) and blank lines are ignored.
+#
+# Copy this to projects.list and edit. projects.list is gitignored.
+
+# example   = git@github.com:you/example.git
+# blog      = git@github.com:you/blog.git

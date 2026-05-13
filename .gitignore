@@ -1,0 +1,10 @@
+*.qcow2
+*.img
+lima.local.yaml
+.envrc.local
+.build/
+.DS_Store
+*.swp
+.idea/
+.vscode/
+projects.list

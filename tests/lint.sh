@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Static checks for the repo's shell scripts.
+# Uses shellcheck if installed (`brew install shellcheck`); else `bash -n`.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+scripts=()
+while IFS= read -r f; do
+  scripts+=("$f")
+done < <(find bin provision tests -type f \( -name '*.sh' -o -path 'bin/*' \) ! -name '*.tpl')
+
+if command -v shellcheck >/dev/null 2>&1; then
+  shellcheck -x "${scripts[@]}"
+else
+  echo "lint: shellcheck not installed — falling back to bash -n syntax checks"
+  for f in "${scripts[@]}"; do
+    bash -n "$f"
+  done
+fi
+
+echo "lint OK"

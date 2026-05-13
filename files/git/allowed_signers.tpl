@@ -1,0 +1,1 @@
+__GIT_EMAIL__ __GIT_SIGNING_KEY__
