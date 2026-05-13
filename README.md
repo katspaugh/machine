@@ -10,10 +10,9 @@ Claude Code comes pre-installed with the official marketplace and these plugins 
 brew install lima
 ```
 
-- An SSH key on the host, loaded into the macOS Keychain so the default agent serves it:
-  ```sh
-  ssh-add --apple-use-keychain ~/.ssh/id_ed25519
-  ```
+- An SSH key on the host, served by an agent the VM can forward. Either:
+  - **macOS Keychain** (default): `ssh-add --apple-use-keychain ~/.ssh/id_ed25519`
+  - **1Password**: enable 1Password → Settings → Developer → *Use the SSH agent*, then run `machine` with `MACHINE_USE_1PASSWORD=1` (see [SSH agent](#ssh-agent) below).
 - That key registered as a **signing key** on GitHub (Settings → SSH and GPG keys → New SSH key → Key type: Signing).
 - Host `git config --global user.name` and `user.email` set (or override via `GIT_NAME` / `GIT_EMAIL`).
 
@@ -74,6 +73,25 @@ Runs lint plus smoke tests: boot, agents-on-PATH, docker, node, signed git, port
 - Git config is rendered on the host from `files/git/*.tpl`, substituting your name/email and SSH signing pubkey (from `~/.ssh/id_ed25519.pub`), then pushed to the VM.
 - GitHub auth + commit signing both use the forwarded macOS SSH agent. Private keys never leave the host; the VM only sees signatures and `ssh -A` proxied auth.
 
+## SSH agent
+
+By default the VM forwards whatever the host's `SSH_AUTH_SOCK` points at — on macOS that's launchd's agent, which serves keys you loaded with `ssh-add --apple-use-keychain` (passphrase cached in Keychain).
+
+To use 1Password's agent instead — keys never touch `~/.ssh`, every signature prompts for Touch ID:
+
+```sh
+brew install 1password-cli                    # only needed for OP_SIGNING_KEY_REF
+# In 1Password: Settings → Developer → "Use the SSH agent"
+export MACHINE_USE_1PASSWORD=1                # for the current shell, or your shell rc
+bin/machine up <project>
+```
+
+For the git signing pubkey, the resolution order is:
+
+1. `GIT_SIGNING_KEY=<literal pubkey string>`
+2. `OP_SIGNING_KEY_REF=op://Vault/Item/public_key` — fetched via `op read` (requires `op` CLI; triggers Touch ID once at `up` time)
+3. `GIT_SIGNING_PUBKEY_FILE=<path>` — defaults to `~/.ssh/id_ed25519.pub`
+
 ## Threat model
 
 No host filesystem is mounted. Each project gets its own VM, so a compromise of one project can't reach another's code or env. The host exposes one channel: the forwarded SSH agent (auth + signing — private keys stay on the host, the VM can only request signatures while it's running). `.env` files live inside the VM only; if you treat them as secret, keep them out of git.
@@ -84,6 +102,8 @@ No host filesystem is mounted. Each project gets its own VM, so a compromise of 
 |---|---|
 | `GIT_NAME` / `GIT_EMAIL` | from host `git config --global` |
 | `GIT_SIGNING_PUBKEY_FILE` | `~/.ssh/id_ed25519.pub` |
-| `GIT_SIGNING_KEY` | literal pubkey string (overrides the file) |
+| `GIT_SIGNING_KEY` | literal pubkey string (overrides everything) |
+| `OP_SIGNING_KEY_REF` | 1Password secret reference for the signing pubkey (e.g. `op://Personal/SSH/public key`) |
+| `MACHINE_USE_1PASSWORD` | set `=1` to forward 1Password's SSH agent instead of macOS Keychain |
+| `ONEPASS_SOCK` | `~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock` |
 | `PROJECTS_FILE` | `<repo>/projects.list` |
-| `SSH_AUTH_SOCK` | macOS default (the agent your `ssh-add` loaded into) |

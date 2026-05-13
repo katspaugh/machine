@@ -4,9 +4,21 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECTS_FILE="${PROJECTS_FILE:-$REPO/projects.list}"
 
-# Default macOS ssh-agent (it forwards keys you've loaded with
-# `ssh-add --apple-use-keychain`). Override with SSH_AUTH_SOCK if you use a
-# different agent.
+# SSH agent selection. Default: leave SSH_AUTH_SOCK alone (macOS's launchd
+# agent, which serves keys loaded via `ssh-add --apple-use-keychain`).
+#
+# To use 1Password's SSH agent instead, set MACHINE_USE_1PASSWORD=1 (with the
+# 1Password desktop app's "Use the SSH agent" setting enabled). Override the
+# socket path with ONEPASS_SOCK if your install is non-standard.
+ONEPASS_SOCK="${ONEPASS_SOCK:-$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock}"
+if [ "${MACHINE_USE_1PASSWORD:-0}" = "1" ]; then
+  if [ ! -S "$ONEPASS_SOCK" ]; then
+    echo "machine: MACHINE_USE_1PASSWORD=1 but 1Password agent socket not found at $ONEPASS_SOCK" >&2
+    echo "  Open 1Password → Settings → Developer → 'Use the SSH agent'." >&2
+    exit 1
+  fi
+  export SSH_AUTH_SOCK="$ONEPASS_SOCK"
+fi
 
 usage() {
   cat <<EOF
@@ -102,20 +114,31 @@ run_provision_in_vm() {
   '
 }
 
-# Read the SSH signing pubkey from disk. Default: ~/.ssh/id_ed25519.pub.
-# Override with GIT_SIGNING_PUBKEY_FILE (path) or GIT_SIGNING_KEY (literal).
+# Read the SSH signing pubkey. Resolution order:
+#   1. GIT_SIGNING_KEY  — literal pubkey string (wins outright)
+#   2. OP_SIGNING_KEY_REF  — 1Password secret reference, read via `op read`
+#                           (requires the 1Password CLI; triggers Touch ID)
+#   3. GIT_SIGNING_PUBKEY_FILE  — path to a .pub file
+#   4. ~/.ssh/id_ed25519.pub  — default
 read_signing_key() {
   if [ -n "${GIT_SIGNING_KEY:-}" ]; then
     printf '%s' "$GIT_SIGNING_KEY"
     return
   fi
+  if [ -n "${OP_SIGNING_KEY_REF:-}" ]; then
+    command -v op >/dev/null || {
+      echo "machine: OP_SIGNING_KEY_REF set but 'op' CLI not found (brew install 1password-cli)" >&2
+      return 1
+    }
+    op read "$OP_SIGNING_KEY_REF" | tr -d '\n'
+    return
+  fi
   local path="${GIT_SIGNING_PUBKEY_FILE:-$HOME/.ssh/id_ed25519.pub}"
   if [ ! -r "$path" ]; then
     echo "machine: signing pubkey not readable at $path" >&2
-    echo "  Override with GIT_SIGNING_PUBKEY_FILE=<path> or GIT_SIGNING_KEY=<literal>" >&2
+    echo "  Override with GIT_SIGNING_PUBKEY_FILE=<path>, GIT_SIGNING_KEY=<literal>, or OP_SIGNING_KEY_REF=op://..." >&2
     return 1
   fi
-  # Strip trailing newline.
   tr -d '\n' < "$path"
 }
 
