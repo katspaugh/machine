@@ -58,6 +58,8 @@ bin/machine up blog        # creates + starts + provisions VM "blog", clones the
 bin/machine ssh blog       # interactive shell, cwd = ~/code/blog
 ```
 
+![demo](machine.gif)
+
 Inside the VM, each repo is at `~/code/<repo-basename>/`. JS deps are installed automatically on first clone (yarn / pnpm / npm, picked from `packageManager` in `package.json`). For env vars, drop a `.env` file in the project — Node's `dotenv` (or your framework) reads it directly. For secrets you'd rather not write to disk, see [1Password env injection](#1password-env-injection).
 
 Host browser → VM web app: ports `3000-3010`, `4200`, `5173-5180`, `8080-8099` are forwarded to `127.0.0.1`.
