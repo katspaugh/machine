@@ -1,6 +1,6 @@
 # machine — one isolated Lima VM per project
 
-A reproducible Lima VM per GitHub project, with Docker, Node, agent CLIs (Claude Code, Codex), signed git, and Cypress preinstalled. Each project lives in its own VM so they can't see each other and the host filesystem isn't mounted.
+A reproducible Lima VM per GitHub project, with Docker, Node, agent CLIs (Claude Code, Codex), Supabase CLI, fly.io CLI (`flyctl`), signed git, and Cypress preinstalled. Each project lives in its own VM so they can't see each other and the host filesystem isn't mounted.
 
 Claude Code comes pre-installed with the official marketplace and these plugins enabled: `frontend-design`, `superpowers`, `github`, `typescript-lsp`, `security-guidance`, `commit-commands`, `chrome-devtools-mcp`, `supabase`. Permission `defaultMode` is set to `auto`.
 
