@@ -4,6 +4,12 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECTS_FILE="${PROJECTS_FILE:-$REPO/projects.toml}"
 
+# Optional local config — set MACHINE_USE_1PASSWORD, ONEPASS_SOCK, etc. here
+# without having to export them every shell. Gitignored.
+if [ -f "$REPO/.env" ]; then
+  set -a; . "$REPO/.env"; set +a
+fi
+
 # We embed Python heredocs that import tomllib (3.11+). Catch the missing-stdlib
 # case up front with a clear message rather than a stack trace mid-command.
 if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
@@ -150,7 +156,9 @@ push_files_to_vm() {
 
   # files/ tree (everything under files/ except dynamically-rendered git stuff
   # — that gets pushed separately by render_git_templates).
-  local saved_nullglob; saved_nullglob=$(shopt -p nullglob)
+  # `shopt -p nullglob` returns 1 when the option is unset (the default), which
+  # would trip `set -e`. Capture state with `|| true`, then restore.
+  local saved_nullglob; saved_nullglob=$(shopt -p nullglob || true)
   shopt -s nullglob
   for f in "$REPO"/files/direnv/* "$REPO"/files/profile.d/* "$REPO"/files/ssh/*; do
     [ -f "$f" ] || continue
@@ -343,6 +351,9 @@ cmd_up() {
   for pid in "${pids[@]}"; do
     wait "$pid" || rc=$?
   done
+  if [ "$rc" -eq 0 ]; then
+    echo "[machine] '$name' is ready — run 'machine ssh $name' to log in."
+  fi
   return $rc
 }
 

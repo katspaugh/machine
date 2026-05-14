@@ -9,4 +9,5 @@ lima.local.yaml
 .vscode/
 projects.toml
 projects.list
+.env
 __pycache__/

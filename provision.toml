@@ -44,7 +44,7 @@ packages = ["gh"]
 [[apt_repo]]
 name     = "nodesource"
 key_url  = "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key"
-deb      = "https://deb.nodesource.com/node_lts.x nodistro main"
+deb      = "https://deb.nodesource.com/node_22.x nodistro main"
 packages = ["nodejs"]
 
 # --- curl|bash installers --------------------------------------------------
@@ -58,7 +58,7 @@ verify      = "command -v claude"
 [corepack]
 prepare = ["pnpm@latest", "yarn@stable"]
 
-# --- npm globals (installed as $LIMA_USER) ---------------------------------
+# --- npm globals (system-wide; apt-installed Node uses /usr/lib/node_modules)
 [npm_global]
 packages = ["typescript", "typescript-language-server", "@openai/codex"]
 

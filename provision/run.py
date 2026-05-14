@@ -146,31 +146,42 @@ def step_apt(cfg: dict[str, Any], runner: Runner, gate: dict[str, str]) -> None:
 
 
 def step_apt_repo(cfg: dict[str, Any], runner: Runner, gate: dict[str, str], codename: str) -> None:
-    repos = cfg.get("apt_repo", [])
+    # Fetch all keys + write all source lists in parallel, then run a single
+    # apt-get update + install for the union of packages. Previously this
+    # serialized N curl-key/apt-update/apt-install cycles; the batched form
+    # saves the per-repo apt-update cost (the slow part).
+    repos = [r for r in cfg.get("apt_repo", []) if when_ok(r, env=gate)]
     if not repos:
         return
     runner.sh(f"install -m 0755 -d {KEYRINGS}")
+
+    parallel = []
     for r in repos:
-        if not when_ok(r, env=gate):
-            continue
         name = r["name"]
         key = f"{KEYRINGS}/{name}.gpg"
         deb = r["deb"].format(codename=codename, arch=gate["arch"])
-        pkgs = " ".join(shlex.quote(p) for p in r["packages"])
         # NodeSource hands us ASCII-armored keys; everything else returns binary.
-        # `--dearmor` is a no-op on already-binary input in modern gpg, so apply uniformly.
-        runner.sh(
-            f"curl -fsSL {shlex.quote(r['key_url'])} "
-            f"| gpg --batch --yes --dearmor -o {key} && chmod a+r {key}"
-        )
-        runner.sh(
+        # `--dearmor` is a no-op on already-binary input in modern gpg.
+        parallel.append(
+            f"( curl -fsSL {shlex.quote(r['key_url'])} "
+            f"| gpg --batch --yes --dearmor -o {key} && chmod a+r {key} && "
             f'echo "deb [arch={gate["arch"]} signed-by={key}] {deb}" '
-            f"> {SOURCES_D}/{name}.list"
+            f"> {SOURCES_D}/{name}.list )"
         )
+    # Background each pipeline, wait for all, fail if any failed.
+    runner.sh(
+        "set -e; " + " & ".join(parallel) + " & "
+        "fail=0; for p in $(jobs -p); do wait $p || fail=1; done; "
+        "[ $fail -eq 0 ]"
+    )
+
+    all_pkgs = " ".join(shlex.quote(p) for r in repos for p in r.get("packages", []))
+    if all_pkgs:
         runner.sh("apt-get update -qq")
         runner.sh(
-            f"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends {pkgs}"
+            f"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends {all_pkgs}"
         )
+    for r in repos:
         if "post_shell" in r:
             runner.sh(r["post_shell"])
 
@@ -216,9 +227,11 @@ def step_corepack(cfg: dict[str, Any], runner: Runner, sentinels: Sentinels) -> 
     if sentinels.done("corepack"):
         print("[provision] corepack: already done", file=sys.stderr)
         return
-    runner.sh("corepack enable", as_user=True)
+    # `corepack enable` and `prepare --activate` write shims into the Node
+    # install dir (/usr/bin for apt-installed Node), so they need root.
+    runner.sh("corepack enable")
     for p in c.get("prepare", []):
-        runner.sh(f"corepack prepare {shlex.quote(p)} --activate", as_user=True)
+        runner.sh(f"corepack prepare {shlex.quote(p)} --activate")
     sentinels.mark("corepack")
 
 
@@ -227,8 +240,10 @@ def step_npm_global(cfg: dict[str, Any], runner: Runner) -> None:
     if not n:
         return
     pkgs = " ".join(shlex.quote(p) for p in n.get("packages", []))
+    # apt-installed Node lives in /usr/lib/node_modules (root-owned), so global
+    # installs need root. Single Node per VM = shared globals is fine.
     if pkgs:
-        runner.sh(f"npm install -g {pkgs}", as_user=True)
+        runner.sh(f"npm install -g {pkgs}")
 
 
 def step_profile_d(cfg: dict[str, Any], runner: Runner) -> None:

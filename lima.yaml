@@ -1,9 +1,4 @@
 vmType: vz
-vmOpts:
-  vz:
-    rosetta:
-      enabled: true
-      binfmt: true
 
 cpus: 4
 memory: "8GiB"
