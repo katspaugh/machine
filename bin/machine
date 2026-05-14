@@ -311,7 +311,7 @@ cmd_up() {
   profiles=$(project_profiles "$name")
 
   if ! limactl list -q | grep -qx "$name"; then
-    limactl create --name="$name" "$REPO/lima.yaml"
+    limactl create --tty=false --name="$name" "$REPO/lima.yaml"
   fi
   limactl start "$name"
 
