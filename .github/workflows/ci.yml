@@ -1,0 +1,52 @@
+name: CI
+
+# Triggers: push to main and any PR. No untrusted inputs are interpolated into
+# `run:` steps below — all values are either workflow-literal or come from
+# checked-in files in the repo.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        run: bash tests/lint.sh
+
+      - name: Unit tests (host-side)
+        run: bash tests/unit.sh
+
+      - name: Validate example projects.toml
+        env:
+          PROJECTS_FILE: projects.toml.example
+        run: bash bin/machine validate
+
+      - name: Dry-run provision (base only)
+        env:
+          SUDO_USER: ubuntu
+        run: python3 provision/run.py --dry-run provision.toml
+
+      - name: Dry-run provision (cypress profile)
+        env:
+          SUDO_USER: ubuntu
+        run: python3 provision/run.py --dry-run provision.toml profiles/cypress.toml
+
+      - name: Dry-run provision (supabase-fly profile)
+        env:
+          SUDO_USER: ubuntu
+        run: python3 provision/run.py --dry-run provision.toml profiles/supabase-fly.toml

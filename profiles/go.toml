@@ -1,0 +1,35 @@
+# Go development profile: pinned stable from go.dev. Bump the version line
+# below to upgrade. Multi-file install so it doesn't fit the [[release]]
+# single-binary pattern — done as a single shell block instead.
+
+[[shell]]
+name = "go-install"
+cmd  = """
+GO_VERSION=1.23.4
+ARCH=$(dpkg --print-architecture)
+if /usr/local/go/bin/go version 2>/dev/null | grep -q "go$GO_VERSION "; then
+  exit 0
+fi
+tmp=$(mktemp -d)
+curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" \
+  | tar -xz -C "$tmp"
+rm -rf /usr/local/go
+mv "$tmp/go" /usr/local/go
+ln -sf /usr/local/go/bin/go /usr/local/bin/go
+ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+rm -rf "$tmp"
+/usr/local/bin/go version
+"""
+
+[[shell]]
+name = "go-profile-d"
+cmd  = """
+cat > /etc/profile.d/go.sh <<'EOF'
+export GOPATH="$HOME/go"
+case ":$PATH:" in
+  *":$HOME/go/bin:"*) ;;
+  *) export PATH="$HOME/go/bin:$PATH" ;;
+esac
+EOF
+chmod 0644 /etc/profile.d/go.sh
+"""

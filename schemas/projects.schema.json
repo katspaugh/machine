@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/katspaugh/machine/schemas/projects.schema.json",
+  "title": "machine projects.toml",
+  "description": "Project list consumed by `bin/machine`. Each top-level table (other than reserved keys) defines a Lima VM.",
+  "type": "object",
+  "properties": {
+    "default_profile": {
+      "type": "string",
+      "description": "Profile name applied when a project omits `profiles`.",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    }
+  },
+  "additionalProperties": {
+    "oneOf": [
+      { "type": "string" },
+      {
+        "type": "object",
+        "properties": {
+          "repos": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Git remotes to clone into ~/code/<basename>/. The first is the primary."
+          },
+          "profiles": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+            "description": "Profile TOMLs to stack on top of provision.toml."
+          }
+        },
+        "required": ["repos"],
+        "additionalProperties": false
+      }
+    ]
+  }
+}

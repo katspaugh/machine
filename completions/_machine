@@ -1,0 +1,51 @@
+#compdef machine
+# zsh completion for `machine`.
+# Install: copy or symlink to a dir in $fpath, e.g.
+#   ln -s "$PWD/completions/_machine" /usr/local/share/zsh/site-functions/_machine
+
+_machine() {
+  local -a commands
+  commands=(
+    'list:List projects from projects.toml'
+    'ps:List projects with live VM status'
+    'doctor:Preflight host checks'
+    'validate:Schema-check projects.toml and profiles'
+    'up:Create + start + provision + clone'
+    'down:Stop the VM'
+    'ssh:Open an interactive shell'
+    'status:Print VM status'
+    'destroy:Delete the VM'
+    'rebuild:Destroy + up'
+    'run:Run a non-interactive command in the VM'
+    'secrets:Render 1Password Environment(s) into tmpfs'
+    'update:Refresh in-place'
+  )
+
+  _arguments -C \
+    '1:command:->cmds' \
+    '*::arg:->args'
+
+  case $state in
+    cmds)
+      _describe 'command' commands
+      ;;
+    args)
+      local projects_file=${PROJECTS_FILE:-$PWD/projects.toml}
+      case $words[1] in
+        up|down|ssh|status|destroy|rebuild|run|secrets|update)
+          if [[ -f $projects_file ]]; then
+            local -a names
+            names=( ${(f)"$(python3 -c "import tomllib,sys
+try: cfg = tomllib.loads(open('$projects_file').read())
+except: sys.exit()
+for n,v in cfg.items():
+    if n != 'default_profile' and isinstance(v,dict): print(n)" 2>/dev/null)"} )
+            _describe 'project' names
+          fi
+          ;;
+      esac
+      ;;
+  esac
+}
+
+_machine "$@"

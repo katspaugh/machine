@@ -1,0 +1,31 @@
+# Rust development profile: rustup + stable toolchain, system-wide.
+
+[[shell]]
+name = "rust-install"
+cmd  = """
+if /usr/local/cargo/bin/rustup --version >/dev/null 2>&1; then
+  exit 0
+fi
+mkdir -p /usr/local/rustup /usr/local/cargo
+curl -fsSL https://sh.rustup.rs \
+  | RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo \
+    sh -s -- -y --no-modify-path --default-toolchain stable --profile minimal
+ln -sf /usr/local/cargo/bin/rustc /usr/local/bin/rustc
+ln -sf /usr/local/cargo/bin/cargo /usr/local/bin/cargo
+ln -sf /usr/local/cargo/bin/rustup /usr/local/bin/rustup
+ln -sf /usr/local/cargo/bin/rustdoc /usr/local/bin/rustdoc
+"""
+
+[[shell]]
+name = "rust-profile-d"
+cmd  = """
+cat > /etc/profile.d/rust.sh <<'EOF'
+export RUSTUP_HOME=/usr/local/rustup
+export CARGO_HOME=/usr/local/cargo
+case ":$PATH:" in
+  *":/usr/local/cargo/bin:"*) ;;
+  *) export PATH="/usr/local/cargo/bin:$PATH" ;;
+esac
+EOF
+chmod 0644 /etc/profile.d/rust.sh
+"""

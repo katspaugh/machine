@@ -13,6 +13,7 @@ Flags:
 """
 from __future__ import annotations
 
+import json
 import os
 import pwd
 import shlex
@@ -31,14 +32,16 @@ PROFILE_D_DST = Path("/etc/profile.d")
 
 # --- Host info --------------------------------------------------------------
 def detect_user() -> str:
-    """The unprivileged Lima user. SUDO_USER is reliable when invoked via sudo."""
+    """The unprivileged Lima user. SUDO_USER is set by sudo and is the only
+    source we trust — scanning /etc/passwd would silently pick the wrong user
+    on any image with more than one account."""
     u = os.environ.get("SUDO_USER")
     if u and u != "root":
         return u
-    for p in pwd.getpwall():
-        if p.pw_name != "root" and p.pw_shell.endswith(("sh", "zsh", "fish")):
-            return p.pw_name
-    sys.exit("provision: cannot determine lima user")
+    sys.exit(
+        "provision: SUDO_USER unset or root — run via `sudo python3 run.py ...` "
+        "as a non-root user (bin/machine does this for you)."
+    )
 
 
 def detect_arch() -> str:
@@ -239,31 +242,38 @@ def step_claude(cfg: dict[str, Any], runner: Runner) -> None:
         return
     marketplace = c["marketplace"]
     marketplace_id = marketplace.rsplit("/", 1)[-1]
-    runner.sh(
-        f"claude plugin marketplace add {shlex.quote(marketplace)} 2>&1 "
-        f"| grep -vi 'already' || true",
-        as_user=True,
-    )
+    # marketplace add / plugin install are noisy when already done: capture
+    # output, treat "already" as success, re-raise anything else.
+    runner.sh(_idempotent_claude_cmd(f"plugin marketplace add {shlex.quote(marketplace)}"), as_user=True)
     for p in c.get("plugins", []):
-        runner.sh(
-            f"claude plugin install {shlex.quote(f'{p}@{marketplace_id}')} 2>&1 "
-            f"| grep -vi 'already installed' || true",
-            as_user=True,
-        )
-    enabled = ",\n    ".join(f'"{p}@{marketplace_id}": true' for p in c.get("plugins", []))
-    settings = (
-        "{\n"
-        f'  "permissions": {{ "defaultMode": "{c.get("default_permission_mode", "auto")}" }},\n'
-        f"  \"enabledPlugins\": {{\n    {enabled}\n  }}\n"
-        "}\n"
-    )
+        spec = shlex.quote(f"{p}@{marketplace_id}")
+        runner.sh(_idempotent_claude_cmd(f"plugin install {spec}"), as_user=True)
+
+    plugins = c.get("plugins", [])
+    settings = {
+        "permissions": {"defaultMode": c.get("default_permission_mode", "auto")},
+        "enabledPlugins": {f"{p}@{marketplace_id}": True for p in plugins},
+    }
+    settings_json = json.dumps(settings, indent=2) + "\n"
     user_home = runner.env["USER_HOME"]
     user = runner.env["LIMA_USER"]
-    quoted = shlex.quote(settings)
+    quoted = shlex.quote(settings_json)
     runner.sh(
         f"install -d -m 0755 -o {user} -g {user} {user_home}/.claude && "
         f"printf %s {quoted} | install -m 0644 -o {user} -g {user} /dev/stdin "
         f"{user_home}/.claude/settings.json"
+    )
+
+
+def _idempotent_claude_cmd(args: str) -> str:
+    """Run `claude <args>` and treat 'already installed/exists' output as success.
+    Any other non-zero exit is propagated."""
+    return (
+        f"out=$(claude {args} 2>&1); rc=$?; "
+        'if [ $rc -eq 0 ]; then printf "%s\\n" "$out"; '
+        'elif printf "%s" "$out" | grep -qi -e "already" -e "exists"; '
+        'then printf "%s\\n" "$out"; '
+        'else printf "%s\\n" "$out" >&2; exit $rc; fi'
     )
 
 
@@ -289,7 +299,15 @@ def main() -> int:
 
     cfg = load_configs(paths)
     user = detect_user()
-    home = pwd.getpwnam(user).pw_dir
+    if dry_run:
+        # Dry-run is run on the host (macOS) where the lima user doesn't exist.
+        # Skip the passwd lookup and synthesize a home dir.
+        try:
+            home = pwd.getpwnam(user).pw_dir
+        except KeyError:
+            home = f"/home/{user}.linux"
+    else:
+        home = pwd.getpwnam(user).pw_dir
     arch = detect_arch() if not dry_run else os.environ.get("DRY_ARCH", "arm64")
     codename = detect_codename() if not dry_run else os.environ.get("DRY_CODENAME", "noble")
     gate = {"arch": arch, "codename": codename}

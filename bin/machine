@@ -4,6 +4,14 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECTS_FILE="${PROJECTS_FILE:-$REPO/projects.toml}"
 
+# We embed Python heredocs that import tomllib (3.11+). Catch the missing-stdlib
+# case up front with a clear message rather than a stack trace mid-command.
+if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+  echo "machine: python3 with tomllib (3.11+) is required on the host." >&2
+  echo "  macOS 14+ ships 3.12 system Python; otherwise: brew install python@3.12" >&2
+  exit 1
+fi
+
 # SSH agent selection. Default: leave SSH_AUTH_SOCK alone (macOS's launchd
 # agent, which serves keys loaded via `ssh-add --apple-use-keychain`).
 #
@@ -26,15 +34,22 @@ Usage: machine <command> [<project>] [args...]
 
 Commands:
   list                    List projects from projects.toml
+  ps                      List projects with live VM status
+  doctor                  Preflight: lima, git config, SSH agent, signing key, op CLI
+  validate                Schema-check projects.toml and referenced profiles (no VM)
   up <project>            Create (if needed) + start + provision + clone the project repo(s)
+                          (--dry-run prints provision steps without executing)
   down <project>          Stop the VM
   ssh <project>           Open an interactive shell (cwd = ~/code/<primary-repo>)
   run <project> <cmd>...  Run a non-interactive command in the VM
   secrets <p> [<repo>]    Render 1Password Environment(s) into VM tmpfs
+  secrets --clear <p> [<repo>]
+                          Wipe rendered secrets from VM tmpfs (all envs, or one repo)
   status <project>        Print status
   destroy <project>       Delete the VM (irreversible)
   rebuild <project>       Destroy + up (reproducibility test)
   update <project>        Refresh in-place (apt upgrade, npm globals, claude installer)
+                          (--reprovision also re-applies TOML configs without rebuild)
 
 projects.toml entries take this shape:
 
@@ -115,7 +130,8 @@ push_files_to_vm() {
     /opt/dev-vm/provision \
     /opt/dev-vm/files/direnv \
     /opt/dev-vm/files/git \
-    /opt/dev-vm/files/profile.d
+    /opt/dev-vm/files/profile.d \
+    /opt/dev-vm/files/ssh
 
   # Base provision config + dispatcher.
   limactl shell "$vm" -- sudo tee /opt/dev-vm/provision.toml \
@@ -134,15 +150,19 @@ push_files_to_vm() {
 
   # files/ tree (everything under files/ except dynamically-rendered git stuff
   # — that gets pushed separately by render_git_templates).
+  local saved_nullglob; saved_nullglob=$(shopt -p nullglob)
   shopt -s nullglob
-  for f in "$REPO"/files/direnv/* "$REPO"/files/profile.d/*; do
+  for f in "$REPO"/files/direnv/* "$REPO"/files/profile.d/* "$REPO"/files/ssh/*; do
     [ -f "$f" ] || continue
     local rel="${f#"$REPO"/files/}"
     limactl shell "$vm" -- sudo tee "/opt/dev-vm/files/$rel" < "$f" >/dev/null
   done
+  eval "$saved_nullglob"
 }
 
 # Invoke the dispatcher with the base config and any profile configs.
+# Honors MACHINE_DRY_RUN=1 (passthrough --dry-run) and MACHINE_PROVISION_LOG
+# (tee output to this path on the host).
 run_provision_in_vm() {
   local vm="$1"; shift
   local profiles=("$@")
@@ -151,8 +171,19 @@ run_provision_in_vm() {
     [ -n "$p" ] || continue
     args="$args /opt/dev-vm/profiles/$p.toml"
   done
-  # shellcheck disable=SC2086  # word-splitting on $args is intentional
-  limactl shell "$vm" -- sudo python3 /opt/dev-vm/provision/run.py $args
+  local extra=""
+  [ "${MACHINE_DRY_RUN:-0}" = "1" ] && extra="--dry-run"
+
+  if [ -n "${MACHINE_PROVISION_LOG:-}" ]; then
+    mkdir -p "$(dirname "$MACHINE_PROVISION_LOG")"
+    # shellcheck disable=SC2086  # word-splitting on $args/$extra is intentional
+    limactl shell "$vm" -- sudo python3 /opt/dev-vm/provision/run.py $extra $args 2>&1 \
+      | tee "$MACHINE_PROVISION_LOG"
+    # PIPESTATUS lookup via bash builtin.
+    return "${PIPESTATUS[0]}"
+  fi
+  # shellcheck disable=SC2086  # word-splitting on $args/$extra is intentional
+  limactl shell "$vm" -- sudo python3 /opt/dev-vm/provision/run.py $extra $args
 }
 
 # --- Git template rendering (host-side) -------------------------------------
@@ -216,13 +247,23 @@ render_git_templates() {
 
   local out="$REPO/.build/$vm/git"
   mkdir -p "$out"
-  sed -e "s|__GIT_NAME__|$gname|g" \
-      -e "s|__GIT_EMAIL__|$email|g" \
-      -e "s|__GIT_SIGNING_KEY__|$sigkey|g" \
-      "$REPO/files/git/gitconfig.tpl" > "$out/gitconfig"
-  sed -e "s|__GIT_EMAIL__|$email|g" \
-      -e "s|__GIT_SIGNING_KEY__|$sigkey|g" \
-      "$REPO/files/git/allowed_signers.tpl" > "$out/allowed_signers"
+  # Use python str.replace rather than sed -e so delimiter conflicts in the
+  # value can't break the substitution.
+  GIT_NAME="$gname" GIT_EMAIL="$email" GIT_SIGNING_KEY="$sigkey" \
+    python3 - "$REPO/files/git/gitconfig.tpl" "$out/gitconfig" \
+            "$REPO/files/git/allowed_signers.tpl" "$out/allowed_signers" <<'PY'
+import os, sys
+subs = {
+    "__GIT_NAME__": os.environ["GIT_NAME"],
+    "__GIT_EMAIL__": os.environ["GIT_EMAIL"],
+    "__GIT_SIGNING_KEY__": os.environ["GIT_SIGNING_KEY"],
+}
+for src, dst in zip(sys.argv[1::2], sys.argv[2::2]):
+    body = open(src).read()
+    for k, v in subs.items():
+        body = body.replace(k, v)
+    open(dst, "w").write(body)
+PY
 
   limactl shell "$vm" -- sudo mkdir -p /opt/dev-vm/files/git
   limactl shell "$vm" -- sudo tee /opt/dev-vm/files/git/gitconfig < "$out/gitconfig" >/dev/null
@@ -253,7 +294,17 @@ PY
 }
 
 cmd_up() {
-  local name="${1:?usage: machine up <project>}"
+  local name=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run) export MACHINE_DRY_RUN=1 ;;
+      --) shift; name="${1:-}"; break ;;
+      -*) echo "machine up: unknown flag '$1'" >&2; return 1 ;;
+      *)  name="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$name" ] || { echo "usage: machine up [--dry-run] <project>" >&2; return 1; }
   validate_name "$name"
   local urls profiles
   urls=$(project_urls "$name")
@@ -273,31 +324,51 @@ cmd_up() {
 
   push_files_to_vm "$name" "${profile_arr[@]}"
   render_git_templates "$name"
+  # Capture provision output to .build/<vm>/provision-<timestamp>.log unless
+  # the caller already set MACHINE_PROVISION_LOG.
+  if [ -z "${MACHINE_PROVISION_LOG:-}" ]; then
+    local ts; ts=$(date -u +%Y%m%dT%H%M%SZ)
+    export MACHINE_PROVISION_LOG="$REPO/.build/$name/provision-$ts.log"
+    echo "[machine] provision log: $MACHINE_PROVISION_LOG"
+  fi
   run_provision_in_vm "$name" "${profile_arr[@]}"
 
+  # Clone repos in parallel. Each clone serializes its own deps install.
+  local pids=() rc=0
   while IFS= read -r url; do
     [ -n "$url" ] || continue
-    clone_repo "$name" "$url"
+    clone_repo "$name" "$url" &
+    pids+=("$!")
   done <<< "$urls"
+  for pid in "${pids[@]}"; do
+    wait "$pid" || rc=$?
+  done
+  return $rc
 }
 
 # Clone one repo into ~/code/<basename>/ inside the VM. Idempotent.
 clone_repo() {
   local name="$1" url="$2"
   local repo_name; repo_name=$(repo_basename "$url")
+  local qurl qrepo
+  qurl=$(printf '%q' "$url")
+  qrepo=$(printf '%q' "$repo_name")
 
-  if limactl shell "$name" -- bash -lc "[ -d \"\$HOME/code/$repo_name/.git\" ]" </dev/null; then
+  if limactl shell "$name" -- bash -lc "[ -d \"\$HOME/code/$qrepo/.git\" ]" </dev/null; then
     echo "[clone] $repo_name: already present (skip)"
     return 0
   fi
   echo "[clone] $repo_name from $url"
-  limactl shell "$name" -- env GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" \
-    bash -lc "mkdir -p \$HOME/code && cd \$HOME/code && git clone --recurse-submodules $url" </dev/null
+  # known_hosts is pre-seeded with github.com keys at provision time, so we
+  # can use yes (strict) for known hosts. accept-new is the fallback for any
+  # other host the user might add (gitlab, self-hosted, ...).
+  limactl shell "$name" -- env GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o UpdateHostKeys=no" \
+    bash -lc "mkdir -p \"\$HOME/code\" && cd \"\$HOME/code\" && git clone --recurse-submodules -- $qurl" </dev/null
 
   # Install JS deps if package.json is present. Try yarn first (most common in
   # repos with packageManager pinned), fall back to npm install.
   limactl shell "$name" -- bash -lc "
-    cd \$HOME/code/$repo_name 2>/dev/null || exit 0
+    cd \"\$HOME/code/$qrepo\" 2>/dev/null || exit 0
     [ -f package.json ] || exit 0
     if grep -q '\"packageManager\":[[:space:]]*\"yarn' package.json 2>/dev/null; then
       echo '[deps] yarn install'
@@ -321,8 +392,10 @@ cmd_ssh() {
   local name="${1:?usage: machine ssh <project>}"
   local url; url=$(project_urls "$name" 2>/dev/null | head -1 || true)
   if [ -n "$url" ]; then
-    local repo_name; repo_name=$(repo_basename "$url")
-    if limactl shell "$name" -- bash -lc "[ -d \"\$HOME/code/$repo_name\" ]" </dev/null 2>/dev/null; then
+    local repo_name qrepo
+    repo_name=$(repo_basename "$url")
+    qrepo=$(printf '%q' "$repo_name")
+    if limactl shell "$name" -- bash -lc "[ -d \"\$HOME/code/$qrepo\" ]" </dev/null 2>/dev/null; then
       exec limactl shell --workdir "/home/$USER.linux/code/$repo_name" "$name"
     fi
   fi
@@ -335,26 +408,53 @@ cmd_status() {
 }
 
 cmd_destroy() {
-  local name="${1:?usage: machine destroy <project>}"
-  read -r -p "Destroy VM '$name'? [y/N] " ans
-  [ "$ans" = "y" ] || { echo "aborted"; exit 1; }
+  local name="" force=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -y|--force|--yes) force=1 ;;
+      -*) echo "machine destroy: unknown flag '$1'" >&2; return 1 ;;
+      *)  name="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$name" ] || { echo "usage: machine destroy [-y] <project>" >&2; return 1; }
+  if [ "$force" -ne 1 ]; then
+    read -r -p "Destroy VM '$name'? [y/N] " ans
+    [ "$ans" = "y" ] || { echo "aborted"; exit 1; }
+  fi
   limactl stop -f "$name" 2>/dev/null || true
   limactl delete "$name"
 }
 
 cmd_rebuild() {
-  local name="${1:?usage: machine rebuild <project>}"
-  cat <<EOF
+  local name="" force=0 dry_run_passthrough=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -y|--force|--yes) force=1 ;;
+      --dry-run)        dry_run_passthrough+=("--dry-run") ;;
+      -*) echo "machine rebuild: unknown flag '$1'" >&2; return 1 ;;
+      *)  name="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$name" ] || { echo "usage: machine rebuild [-y] [--dry-run] <project>" >&2; return 1; }
+  if [ "$force" -ne 1 ]; then
+    cat <<EOF
 This will DESTROY the VM '$name' (cloned repos, branches, shell history) and
 recreate it from scratch.
 
 To refresh in place without losing state, use:  machine update $name
 EOF
-  read -r -p "Type the VM name '$name' to confirm: " ans
-  [ "$ans" = "$name" ] || { echo "aborted"; exit 1; }
+    read -r -p "Type the VM name '$name' to confirm: " ans
+    [ "$ans" = "$name" ] || { echo "aborted"; exit 1; }
+  fi
   limactl stop -f "$name" 2>/dev/null || true
   limactl delete "$name" 2>/dev/null || true
-  cmd_up "$name"
+  if [ "${#dry_run_passthrough[@]}" -gt 0 ]; then
+    cmd_up "${dry_run_passthrough[@]}" "$name"
+  else
+    cmd_up "$name"
+  fi
 }
 
 cmd_run() {
@@ -363,7 +463,27 @@ cmd_run() {
 }
 
 cmd_update() {
-  local name="${1:?usage: machine update <project>}"
+  local name="" reprovision=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reprovision) reprovision=1 ;;
+      -*) echo "machine update: unknown flag '$1'" >&2; return 1 ;;
+      *)  name="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$name" ] || { echo "usage: machine update [--reprovision] <project>" >&2; return 1; }
+  if [ "$reprovision" -eq 1 ]; then
+    local profiles profile_arr=()
+    profiles=$(project_profiles "$name")
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      profile_arr+=("$p")
+    done <<< "$profiles"
+    push_files_to_vm "$name" "${profile_arr[@]}"
+    render_git_templates "$name"
+    run_provision_in_vm "$name" "${profile_arr[@]}"
+  fi
   # shellcheck disable=SC2016  # body runs inside the VM
   limactl shell "$name" -- sudo bash -c '
     set -e
@@ -379,9 +499,19 @@ cmd_update() {
     npm update -g @openai/codex typescript typescript-language-server
     curl -fsSL https://claude.ai/install.sh | bash
     # Refresh the plugin marketplace and update each installed plugin.
-    claude plugin marketplace update claude-plugins-official 2>/dev/null || true
+    # Treat "already up to date" / "no updates" output as success but surface
+    # any other non-zero exit.
+    run_claude() {
+      out=$(claude "$@" 2>&1); rc=$?
+      if [ $rc -eq 0 ]; then printf "%s\n" "$out"; return 0; fi
+      if printf "%s" "$out" | grep -qi -e "already" -e "up to date" -e "no updates"; then
+        printf "%s\n" "$out"; return 0
+      fi
+      printf "%s\n" "$out" >&2; return $rc
+    }
+    run_claude plugin marketplace update claude-plugins-official || true
     for p in $(claude plugin list 2>/dev/null | awk "NR>1 {print \$1}"); do
-      claude plugin update "$p" 2>/dev/null || true
+      run_claude plugin update "$p" || true
     done
   '
   echo "update OK"
@@ -413,8 +543,57 @@ sync_one_env() {
   ' bash "$env_id"
 }
 
+cmd_secrets_clear() {
+  local name="${1:?usage: machine secrets --clear <project> [<repo>]}"
+  local target_repo="${2:-}"
+  if [ -z "$target_repo" ]; then
+    # shellcheck disable=SC2016  # script body runs inside the VM
+    limactl shell "$name" -- bash -lc '
+      dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dev-secrets"
+      if [ -d "$dir" ]; then
+        # Best-effort overwrite, then unlink.
+        find "$dir" -maxdepth 1 -type f -name "*.env" -exec sh -c "head -c $(wc -c <\"\$1\") /dev/zero > \"\$1\" 2>/dev/null; rm -f \"\$1\"" _ {} \;
+        rmdir "$dir" 2>/dev/null || true
+        echo "[secrets] cleared $dir"
+      else
+        echo "[secrets] no cache dir on $(hostname)"
+      fi
+    '
+    return
+  fi
+  # Single-repo clear: look up the env id from that repo's .envrc.
+  local envrc_path env_id
+  envrc_path=$(limactl shell "$name" -- bash -lc "ls \$HOME/code/$(printf '%q' "$target_repo")/.envrc 2>/dev/null || true")
+  if [ -z "$envrc_path" ]; then
+    echo "no .envrc for repo '$target_repo' in VM '$name'" >&2
+    return 1
+  fi
+  env_id=$(extract_env_id "$name" "$envrc_path")
+  if [ -z "$env_id" ]; then
+    echo "no 'use op_env <id>' line in $envrc_path" >&2
+    return 1
+  fi
+  # shellcheck disable=SC2016  # script body runs inside the VM
+  limactl shell "$name" -- bash -c '
+    dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dev-secrets"
+    cache="$dir/$1.env"
+    if [ -f "$cache" ]; then
+      head -c "$(wc -c <"$cache")" /dev/zero > "$cache" 2>/dev/null || true
+      rm -f "$cache"
+      echo "[secrets] cleared $cache"
+    else
+      echo "[secrets] $cache not present"
+    fi
+  ' bash "$env_id"
+}
+
 cmd_secrets() {
-  local name="${1:?usage: machine secrets <project> [<repo>]}"
+  if [ "${1:-}" = "--clear" ]; then
+    shift
+    cmd_secrets_clear "$@"
+    return $?
+  fi
+  local name="${1:?usage: machine secrets [--clear] <project> [<repo>]}"
   local target_repo="${2:-}"
   command -v op >/dev/null || {
     echo "machine: 'op' CLI required (brew install 1password-cli)" >&2
@@ -455,10 +634,195 @@ cmd_secrets() {
   echo "synced $count environment(s)"
 }
 
+# --- Doctor: preflight checks -----------------------------------------------
+
+cmd_doctor() {
+  local fails=0
+  local checks=0
+
+  _check() {
+    checks=$((checks + 1))
+    local label="$1"; shift
+    if "$@" >/dev/null 2>&1; then
+      printf '  ok  %s\n' "$label"
+    else
+      printf '  FAIL %s\n' "$label" >&2
+      fails=$((fails + 1))
+    fi
+  }
+  _check_with_output() {
+    checks=$((checks + 1))
+    local label="$1" output
+    shift
+    output=$("$@" 2>&1) || {
+      printf '  FAIL %s — %s\n' "$label" "$output" >&2
+      fails=$((fails + 1))
+      return
+    }
+    printf '  ok  %s — %s\n' "$label" "$output"
+  }
+
+  echo "[doctor] host"
+  _check "limactl on PATH"               command -v limactl
+  _check "python3 with tomllib"          python3 -c 'import tomllib'
+  _check_with_output "git user.name"     git config --global user.name
+  _check_with_output "git user.email"    git config --global user.email
+
+  echo "[doctor] ssh"
+  if [ "${MACHINE_USE_1PASSWORD:-0}" = "1" ]; then
+    _check "1Password agent socket"      test -S "$ONEPASS_SOCK"
+  fi
+  if [ -n "${SSH_AUTH_SOCK:-}" ]; then
+    _check "SSH agent reachable"         ssh-add -l
+    if ! ssh-add -l 2>/dev/null | grep -qE '^(256|384|521|2048|3072|4096)'; then
+      # shellcheck disable=SC2016  # backticks are literal here, not command subst
+      printf '  WARN  no keys in agent — load one with `ssh-add --apple-use-keychain ~/.ssh/id_ed25519`\n' >&2
+    fi
+  else
+    printf '  FAIL SSH_AUTH_SOCK unset\n' >&2
+    fails=$((fails + 1))
+  fi
+
+  echo "[doctor] signing key"
+  local sig
+  if sig=$(read_signing_key 2>&1); then
+    printf '  ok  signing pubkey resolves (%d bytes)\n' "${#sig}"
+  else
+    printf '  FAIL signing pubkey — %s\n' "$sig" >&2
+    fails=$((fails + 1))
+  fi
+
+  if [ -n "${OP_SIGNING_KEY_REF:-}" ] || [ -f "$PROJECTS_FILE" ] && grep -q 'op_env' "${PROJECTS_FILE:-/dev/null}" 2>/dev/null; then
+    echo "[doctor] 1Password"
+    _check "op CLI installed"            command -v op
+  fi
+
+  echo "[doctor] config"
+  _check "projects.toml present"         test -f "$PROJECTS_FILE"
+  if [ -f "$PROJECTS_FILE" ]; then
+    _check "projects.toml parses"        python3 -c "import tomllib; tomllib.loads(open('$PROJECTS_FILE').read())"
+  fi
+
+  echo
+  if [ "$fails" -gt 0 ]; then
+    printf '%d/%d checks failed\n' "$fails" "$checks" >&2
+    return 1
+  fi
+  printf 'all %d checks passed\n' "$checks"
+}
+
+# --- Validate: schema-check the TOMLs without touching a VM -----------------
+
+cmd_validate() {
+  python3 - "$REPO" "$PROJECTS_FILE" <<'PY'
+import sys, tomllib
+from pathlib import Path
+repo = Path(sys.argv[1])
+projects_file = Path(sys.argv[2])
+
+errors: list[str] = []
+
+def err(msg: str) -> None:
+    errors.append(msg)
+
+# --- projects.toml ---
+if not projects_file.exists():
+    err(f"{projects_file}: not found (copy projects.toml.example and edit)")
+else:
+    try:
+        cfg = tomllib.loads(projects_file.read_text())
+    except tomllib.TOMLDecodeError as e:
+        err(f"{projects_file}: parse error: {e}")
+        cfg = {}
+    default_profile = cfg.get("default_profile")
+    if default_profile is not None and not isinstance(default_profile, str):
+        err("default_profile must be a string")
+    referenced_profiles: set[str] = set()
+    for name, project in cfg.items():
+        if name == "default_profile":
+            continue
+        if not isinstance(project, dict):
+            continue
+        if not name.replace("-", "").isalnum() or not name[0].isalnum() or not name.islower():
+            err(f"[{name}]: invalid name (use lowercase a-z, 0-9, hyphen, starting alphanumeric)")
+        repos = project.get("repos")
+        if not isinstance(repos, list) or not repos or not all(isinstance(r, str) for r in repos):
+            err(f"[{name}]: repos must be a non-empty list of strings")
+        profiles = project.get("profiles", [default_profile] if default_profile else [])
+        if not isinstance(profiles, list) or not all(isinstance(p, str) for p in profiles if p is not None):
+            err(f"[{name}]: profiles must be a list of strings")
+        for p in profiles:
+            if p:
+                referenced_profiles.add(p)
+    if default_profile:
+        referenced_profiles.add(default_profile)
+    for p in referenced_profiles:
+        path = repo / "profiles" / f"{p}.toml"
+        if not path.exists():
+            err(f"profile '{p}' referenced but {path} not found")
+        else:
+            try:
+                tomllib.loads(path.read_text())
+            except tomllib.TOMLDecodeError as e:
+                err(f"profiles/{p}.toml: parse error: {e}")
+
+# --- provision.toml ---
+provision = repo / "provision.toml"
+if not provision.exists():
+    err("provision.toml not found")
+else:
+    try:
+        tomllib.loads(provision.read_text())
+    except tomllib.TOMLDecodeError as e:
+        err(f"provision.toml: parse error: {e}")
+
+if errors:
+    print("validation failed:", file=sys.stderr)
+    for e in errors:
+        print(f"  - {e}", file=sys.stderr)
+    sys.exit(1)
+print("validation OK")
+PY
+}
+
+# --- ps: configured + running state -----------------------------------------
+
+cmd_ps() {
+  if [ ! -f "$PROJECTS_FILE" ]; then
+    echo "no $PROJECTS_FILE — copy projects.toml.example and edit"
+    return 0
+  fi
+  # Pull live state once.
+  local lima_status
+  lima_status=$(limactl list --format='{{.Name}} {{.Status}}' 2>/dev/null || true)
+
+  python3 - "$PROJECTS_FILE" <<PY
+import sys, tomllib
+cfg = tomllib.loads(open(sys.argv[1]).read())
+default = cfg.get("default_profile")
+lines = """$lima_status""".strip().splitlines()
+status = {l.split()[0]: " ".join(l.split()[1:]) for l in lines if l.strip()}
+print(f"{'NAME':<20}  {'STATUS':<12}  {'PROFILES':<20}  REPO")
+for name, project in cfg.items():
+    if not isinstance(project, dict):
+        continue
+    repos = project.get("repos", [])
+    profiles = project.get("profiles", [default] if default else [])
+    profile_str = ",".join(p for p in profiles if p) or "-"
+    primary = repos[0] if repos else "-"
+    extra = f" (+{len(repos)-1})" if len(repos) > 1 else ""
+    st = status.get(name, "—")
+    print(f"{name:<20}  {st:<12}  {profile_str:<20}  {primary}{extra}")
+PY
+}
+
 # --- Dispatch ---------------------------------------------------------------
 
 case "${1:-}" in
   list)     shift; cmd_list "$@" ;;
+  ps)       shift; cmd_ps "$@" ;;
+  doctor)   shift; cmd_doctor "$@" ;;
+  validate) shift; cmd_validate "$@" ;;
   up)       shift; cmd_up "$@" ;;
   down)     shift; cmd_down "$@" ;;
   ssh)      shift; cmd_ssh "$@" ;;

@@ -2,8 +2,8 @@
 set -euo pipefail
 NAME="${MACHINE_NAME:?set MACHINE_NAME}"
 
-limactl shell "$NAME" -- bash -lc 'command -v mise && mise --version'
 limactl shell "$NAME" -- bash -lc 'node --version | grep -E "^v(20|22|24)\."'
+limactl shell "$NAME" -- bash -lc 'corepack --version'
 limactl shell "$NAME" -- bash -lc 'corepack pnpm --version'
 limactl shell "$NAME" -- bash -lc 'command -v yarn'
 # shellcheck disable=SC2016  # body runs inside the VM

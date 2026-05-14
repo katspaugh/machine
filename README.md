@@ -12,6 +12,8 @@ Claude Code comes pre-installed with the official marketplace and these plugins 
 brew install lima
 ```
 
+`bin/machine` uses `python3` with `tomllib` (Python 3.11+). macOS 14+ ships 3.12 system Python; otherwise `brew install python@3.12`. Run `bin/machine doctor` after the first clone to verify everything resolves.
+
 - An SSH key on the host, served by an agent the VM can forward. Either:
   - **macOS Keychain** (default): `ssh-add --apple-use-keychain ~/.ssh/id_ed25519`
   - **1Password**: enable 1Password → Settings → Developer → *Use the SSH agent*, then run `machine` with `MACHINE_USE_1PASSWORD=1` (see [SSH agent](#ssh-agent) below).
@@ -69,15 +71,19 @@ Host browser → VM web app: ports `3000-3010`, `4200`, `5173-5180`, `8080-8099`
 | Command | What |
 |---|---|
 | `bin/machine list` | List projects from `projects.toml` |
-| `bin/machine up <p>` | Create if needed, start, provision (base + project's profiles), clone the repo(s). Idempotent. |
+| `bin/machine ps` | List projects with live VM status |
+| `bin/machine doctor` | Preflight host checks: lima, git config, SSH agent, signing key, `op` CLI |
+| `bin/machine validate` | Schema-check `projects.toml` and referenced profiles (no VM) |
+| `bin/machine up <p>` | Create if needed, start, provision (base + project's profiles), clone the repo(s). Idempotent. `--dry-run` prints provision steps without executing. |
 | `bin/machine down <p>` | Stop the VM |
 | `bin/machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`) |
 | `bin/machine run <p> <cmd>...` | Non-interactive command in the VM |
 | `bin/machine secrets <p> [<repo>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)) |
+| `bin/machine secrets --clear <p> [<repo>]` | Wipe rendered secrets from VM tmpfs |
 | `bin/machine status <p>` | `limactl list` for the VM |
-| `bin/machine update <p>` | Refresh in-place: `apt upgrade`, npm globals, claude installer |
-| `bin/machine rebuild <p>` | **Destroys** the VM and rebuilds from scratch (reproducibility test) |
-| `bin/machine destroy <p>` | Delete the VM |
+| `bin/machine update <p>` | Refresh in-place: `apt upgrade`, npm globals, claude installer. `--reprovision` also re-applies TOML configs. |
+| `bin/machine rebuild <p>` | **Destroys** the VM and rebuilds from scratch (reproducibility test). `-y` skips confirmation. |
+| `bin/machine destroy <p>` | Delete the VM. `-y` skips confirmation. |
 
 ## Provisioning
 
@@ -87,6 +93,9 @@ The provisioning system is declarative: tools are listed in TOML files, and a sm
 - **`profiles/<name>.toml`** — optional add-ons. Ship with `machine`:
   - `cypress.toml` — Cypress runtime libs + Chrome (amd64) or chromium (arm64).
   - `supabase-fly.toml` — Supabase CLI (release tarball) + flyctl (`curl|bash`).
+  - `python.toml` — `uv` (package + project manager) + `ruff` + `pyright`.
+  - `rust.toml` — `rustup` with the stable toolchain (minimal profile).
+  - `go.toml` — pinned Go from go.dev (edit the version in the file to bump).
 - **`provision/run.py`** — reads the base + selected profiles, merges, and runs them in fixed step order. Idempotent via sentinels under `/var/lib/dev-vm/provisioned/`.
 
 Adding a tool that fits a typed section (apt package, npm global, apt repo, `curl|bash` installer, GitHub release tarball, Claude plugin) is one line in TOML. The `[[shell]]` section is an escape hatch for genuinely-shell-shaped one-offs (writing config files, `chsh`, etc.).
@@ -96,10 +105,28 @@ Schema reference is in the comments at the top of `provision.toml`.
 ## Verifying
 
 ```sh
-bash tests/run-all.sh <project>
+bash tests/run-all.sh <project>     # full VM smokes (lint + boot + docker + node + git-sign + …)
+bash tests/unit.sh                  # host-side Python unit tests (no VM)
+bin/machine validate                # schema-check the TOMLs
+bin/machine doctor                  # preflight host environment
 ```
 
-Runs lint plus smoke tests: boot, agents-on-PATH, docker, node, signed git, port forward, and (with the cypress profile) the browser runtime.
+`tests/run-all.sh` requires a provisioned VM (set `MACHINE_NAME=<project>` or pass the project as arg 1). `tests/unit.sh` runs offline.
+
+## Shell completion
+
+Bash, zsh, and fish completions ship under `completions/`:
+
+```sh
+# bash
+echo 'source /path/to/machine/completions/machine.bash' >> ~/.bashrc
+
+# zsh (somewhere in $fpath)
+ln -s "$PWD/completions/_machine" /usr/local/share/zsh/site-functions/_machine
+
+# fish
+ln -s "$PWD/completions/machine.fish" ~/.config/fish/completions/machine.fish
+```
 
 ## How it works
 

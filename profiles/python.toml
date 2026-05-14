@@ -1,0 +1,20 @@
+# Python development profile: uv (package + project manager) and ruff.
+# Apt python3 is already in the base; this adds modern tooling.
+
+[[installer]]
+name        = "uv"
+url         = "https://astral.sh/uv/install.sh"
+env         = { UV_INSTALL_DIR = "/usr/local/bin", UV_NO_MODIFY_PATH = "1" }
+verify      = "/usr/local/bin/uv --version"
+
+# ruff via uv tool — keeps install isolated, gets `ruff` on PATH for the
+# unprivileged user automatically.
+[[shell]]
+name        = "uv-tool-ruff"
+run_as_user = true
+cmd         = "uv tool install ruff && uv tool update-shell || true"
+
+[[shell]]
+name        = "uv-tool-pyright"
+run_as_user = true
+cmd         = "uv tool install pyright || true"

@@ -96,3 +96,26 @@ install -d -m 0755 -o $LIMA_USER -g $LIMA_USER $USER_HOME/.config/direnv
 install -m 0644 -o $LIMA_USER -g $LIMA_USER \
   /opt/dev-vm/files/direnv/op_env.sh $USER_HOME/.config/direnv/direnvrc
 """
+
+# Pre-seed SSH known_hosts so first-clone uses StrictHostKeyChecking=yes
+# instead of TOFU. New entries the user picks up via `ssh-keyscan` get
+# appended; we never overwrite existing entries.
+[[shell]]
+name = "install-known-hosts"
+cmd  = """
+install -d -m 0700 -o $LIMA_USER -g $LIMA_USER $USER_HOME/.ssh
+if [ ! -f $USER_HOME/.ssh/known_hosts ]; then
+  install -m 0644 -o $LIMA_USER -g $LIMA_USER \
+    /opt/dev-vm/files/ssh/known_hosts $USER_HOME/.ssh/known_hosts
+else
+  # Append any pre-seeded entries not already present.
+  awk 'NR==FNR{seen[$0]=1; next} !seen[$0]' \
+    $USER_HOME/.ssh/known_hosts /opt/dev-vm/files/ssh/known_hosts \
+    >> $USER_HOME/.ssh/known_hosts.tmp || true
+  if [ -s $USER_HOME/.ssh/known_hosts.tmp ]; then
+    cat $USER_HOME/.ssh/known_hosts.tmp >> $USER_HOME/.ssh/known_hosts
+  fi
+  rm -f $USER_HOME/.ssh/known_hosts.tmp
+  chown $LIMA_USER:$LIMA_USER $USER_HOME/.ssh/known_hosts
+fi
+"""
