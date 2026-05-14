@@ -39,8 +39,7 @@ usage() {
 Usage: machine <command> [<project>] [args...]
 
 Commands:
-  list                    List projects from projects.toml
-  ps                      List projects with live VM status
+  list (alias: ps)        List projects from projects.toml with live VM status
   doctor                  Preflight: lima, git config, SSH agent, signing key, op CLI
   validate                Schema-check projects.toml and referenced profiles (no VM)
   up <project>            Create (if needed) + start + provision + clone the project repo(s)
@@ -317,10 +316,18 @@ cmd_list() {
     echo "no $PROJECTS_FILE — copy projects.toml.example and edit"
     return 0
   fi
-  python3 - "$PROJECTS_FILE" <<'PY'
+  # Pull live VM state once so the table reflects reality (a destroyed VM
+  # shows as "—", not as if it still existed).
+  local lima_status
+  lima_status=$(limactl list --format='{{.Name}} {{.Status}}' 2>/dev/null || true)
+
+  python3 - "$PROJECTS_FILE" <<PY
 import sys, tomllib
 cfg = tomllib.loads(open(sys.argv[1]).read())
 default = cfg.get("default_profile")
+lines = """$lima_status""".strip().splitlines()
+status = {l.split()[0]: " ".join(l.split()[1:]) for l in lines if l.strip()}
+print(f"{'NAME':<20}  {'STATUS':<12}  {'PROFILES':<20}  REPO")
 for name, project in cfg.items():
     if not isinstance(project, dict):
         continue
@@ -329,7 +336,8 @@ for name, project in cfg.items():
     profile_str = ",".join(p for p in profiles if p) or "-"
     primary = repos[0] if repos else "-"
     extra = f" (+{len(repos)-1})" if len(repos) > 1 else ""
-    print(f"{name:<20}  [{profile_str}]  {primary}{extra}")
+    st = status.get(name, "—")
+    print(f"{name:<20}  {st:<12}  {profile_str:<20}  {primary}{extra}")
 PY
 }
 
@@ -955,40 +963,10 @@ PY
 
 # --- ps: configured + running state -----------------------------------------
 
-cmd_ps() {
-  if [ ! -f "$PROJECTS_FILE" ]; then
-    echo "no $PROJECTS_FILE — copy projects.toml.example and edit"
-    return 0
-  fi
-  # Pull live state once.
-  local lima_status
-  lima_status=$(limactl list --format='{{.Name}} {{.Status}}' 2>/dev/null || true)
-
-  python3 - "$PROJECTS_FILE" <<PY
-import sys, tomllib
-cfg = tomllib.loads(open(sys.argv[1]).read())
-default = cfg.get("default_profile")
-lines = """$lima_status""".strip().splitlines()
-status = {l.split()[0]: " ".join(l.split()[1:]) for l in lines if l.strip()}
-print(f"{'NAME':<20}  {'STATUS':<12}  {'PROFILES':<20}  REPO")
-for name, project in cfg.items():
-    if not isinstance(project, dict):
-        continue
-    repos = project.get("repos", [])
-    profiles = project.get("profiles", [default] if default else [])
-    profile_str = ",".join(p for p in profiles if p) or "-"
-    primary = repos[0] if repos else "-"
-    extra = f" (+{len(repos)-1})" if len(repos) > 1 else ""
-    st = status.get(name, "—")
-    print(f"{name:<20}  {st:<12}  {profile_str:<20}  {primary}{extra}")
-PY
-}
-
 # --- Dispatch ---------------------------------------------------------------
 
 case "${1:-}" in
-  list)     shift; cmd_list "$@" ;;
-  ps)       shift; cmd_ps "$@" ;;
+  list|ps)  shift; cmd_list "$@" ;;
   doctor)   shift; cmd_doctor "$@" ;;
   validate) shift; cmd_validate "$@" ;;
   up)       shift; cmd_up "$@" ;;
