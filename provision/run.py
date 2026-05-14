@@ -110,8 +110,12 @@ class Runner:
         print(prefix + "$ " + cmd.strip().replace("\n", " \\n "), file=sys.stderr)
         if self.dry_run:
             return
+        # -H sets HOME to the target user's home but does NOT invoke the
+        # target's login shell. We then run `bash -lc` explicitly. This avoids
+        # fish (or any non-bash login shell) trying to parse the bash-syntax
+        # command string when sudo's -i flag would route through it.
         argv = (
-            ["sudo", "-u", self.user, "-i", "bash", "-lc", cmd]
+            ["sudo", "-u", self.user, "-H", "bash", "-lc", cmd]
             if as_user
             else ["bash", "-lc", cmd]
         )
