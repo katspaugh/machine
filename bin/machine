@@ -56,6 +56,8 @@ Commands:
   rebuild <project>       Destroy + up (reproducibility test)
   update <project>        Refresh in-place (apt upgrade, npm globals, claude installer)
                           (--reprovision also re-applies TOML configs without rebuild)
+  bake [--force]          Build/refresh the cached base image used by 'up'
+                          (auto-runs on first 'up'; --force ignores hash check)
 
 projects.toml entries take this shape:
 
@@ -146,8 +148,10 @@ push_files_to_vm() {
     < "$REPO/provision/run.py" >/dev/null
   limactl shell "$vm" -- sudo chmod 0755 /opt/dev-vm/provision/run.py
 
-  # Only push the profiles this project actually uses.
-  for p in "${profiles[@]}"; do
+  # Only push the profiles this project actually uses. Guard the array
+  # expansion: empty arrays trip `set -u` on macOS bash 3.2 (used by `bake`,
+  # which calls this with no profiles).
+  for p in ${profiles[@]+"${profiles[@]}"}; do
     [ -n "$p" ] || continue
     local src="$REPO/profiles/$p.toml"
     [ -f "$src" ] || { echo "machine: missing profile file $src" >&2; return 1; }
@@ -175,7 +179,8 @@ run_provision_in_vm() {
   local vm="$1"; shift
   local profiles=("$@")
   local args="/opt/dev-vm/provision.toml"
-  for p in "${profiles[@]}"; do
+  # Empty-array guard for `set -u` (callers like `bake` pass no profiles).
+  for p in ${profiles[@]+"${profiles[@]}"}; do
     [ -n "$p" ] || continue
     args="$args /opt/dev-vm/profiles/$p.toml"
   done
@@ -301,6 +306,119 @@ for name, project in cfg.items():
 PY
 }
 
+# --- Golden image (cached pre-provisioned base disk) ------------------------
+# Boot a throwaway VM, run the *base* provision.toml only, snapshot the disk,
+# reuse it as the starting point for every subsequent VM. Profiles still stack
+# on top per-VM. Hash of (provision.toml + provision/run.py) invalidates cache.
+GOLDEN_DIR="$HOME/.cache/machine"
+
+golden_arch_tag() {
+  case "$(uname -m)" in
+    arm64|aarch64) echo "arm64" ;;
+    x86_64)        echo "amd64" ;;
+    *)             uname -m ;;
+  esac
+}
+
+golden_lima_arch() {
+  case "$(uname -m)" in
+    arm64|aarch64) echo "aarch64" ;;
+    x86_64)        echo "x86_64" ;;
+    *)             uname -m ;;
+  esac
+}
+
+golden_hash() {
+  cat "$REPO/provision.toml" "$REPO/provision/run.py" | shasum -a 256 | cut -c1-16
+}
+
+golden_img()   { echo "$GOLDEN_DIR/base-$(golden_arch_tag).img"; }
+golden_stamp() { echo "$GOLDEN_DIR/base-$(golden_arch_tag).hash"; }
+
+golden_fresh() {
+  local img stamp
+  img=$(golden_img); stamp=$(golden_stamp)
+  [ -f "$img" ] && [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$(golden_hash)" ]
+}
+
+# Render lima.yaml for $vm into .build/<vm>/lima.yaml, prepending the cached
+# image as the highest-priority `images:` entry when one is available.
+render_lima_yaml() {
+  local vm="$1"
+  local out="$REPO/.build/$vm/lima.yaml"
+  mkdir -p "$(dirname "$out")"
+  if golden_fresh; then
+    python3 - "$REPO/lima.yaml" "$out" "$(golden_img)" "$(golden_lima_arch)" <<'PY'
+import sys
+src, dst, img, arch = sys.argv[1:]
+out = []
+inserted = False
+for line in open(src):
+    out.append(line)
+    if not inserted and line.rstrip() == "images:":
+        out.append(f'  - location: "file://{img}"\n')
+        out.append(f'    arch: "{arch}"\n')
+        inserted = True
+open(dst, "w").write("".join(out))
+PY
+  else
+    cp "$REPO/lima.yaml" "$out"
+  fi
+  printf '%s\n' "$out"
+}
+
+cmd_bake() {
+  local force=0
+  case "${1:-}" in
+    --force) force=1 ;;
+    "")      ;;
+    *) echo "machine bake: unknown flag '$1' (use --force to rebuild)" >&2; return 1 ;;
+  esac
+  if [ $force -eq 0 ] && golden_fresh; then
+    echo "[bake] cache fresh ($(golden_hash)) — use --force to rebuild"
+    return 0
+  fi
+  mkdir -p "$GOLDEN_DIR"
+
+  local vm="machine-base"
+  if limactl list -q | grep -qx "$vm"; then
+    echo "[bake] removing stale '$vm'"
+    limactl stop -f "$vm" 2>/dev/null || true
+    limactl delete -f "$vm"
+  fi
+
+  echo "[bake] creating base VM (~5 min, base provision only)"
+  # Use raw lima.yaml — we are creating the cache, can't reference it.
+  limactl create --tty=false --name="$vm" "$REPO/lima.yaml"
+  limactl start "$vm"
+  push_files_to_vm "$vm"            # no profiles
+  render_git_templates "$vm"
+  local ts; ts=$(date -u +%Y%m%dT%H%M%SZ)
+  MACHINE_PROVISION_LOG="$REPO/.build/$vm/provision-$ts.log" \
+    run_provision_in_vm "$vm"        # no profile args
+  limactl stop "$vm"
+
+  local src="$HOME/.lima/$vm/disk"
+  [ -f "$src" ] || { echo "[bake] expected disk at $src" >&2; return 1; }
+  local img; img=$(golden_img)
+  echo "[bake] exporting $src → $img"
+  # APFS clonefile (cp -c) is near-instant and preserves sparseness; fall back
+  # to plain cp if -c isn't supported (non-APFS, non-macOS).
+  cp -c "$src" "$img.tmp" 2>/dev/null || cp "$src" "$img.tmp"
+  mv "$img.tmp" "$img"
+  golden_hash > "$(golden_stamp)"
+
+  limactl delete -f "$vm"
+  echo "[bake] done — $img"
+}
+
+# Auto-bake on first `up` if no fresh cache exists. Silent if cache is good.
+ensure_golden_image() {
+  if golden_fresh; then return 0; fi
+  echo "[machine] no fresh base image cached — baking (one-time per provision.toml change)"
+  cmd_bake
+}
+
 cmd_up() {
   local name=""
   while [ $# -gt 0 ]; do
@@ -319,7 +437,9 @@ cmd_up() {
   profiles=$(project_profiles "$name")
 
   if ! limactl list -q | grep -qx "$name"; then
-    limactl create --tty=false --name="$name" "$REPO/lima.yaml"
+    ensure_golden_image
+    local lima_yaml; lima_yaml=$(render_lima_yaml "$name")
+    limactl create --tty=false --name="$name" "$lima_yaml"
   fi
   limactl start "$name"
 
@@ -843,6 +963,7 @@ case "${1:-}" in
   run)      shift; cmd_run "$@" ;;
   secrets)  shift; cmd_secrets "$@" ;;
   update)   shift; cmd_update "$@" ;;
+  bake)     shift; cmd_bake "$@" ;;
   ""|-h|--help) usage ;;
   *) usage; exit 1 ;;
 esac
