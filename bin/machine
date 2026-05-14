@@ -7,7 +7,10 @@ PROJECTS_FILE="${PROJECTS_FILE:-$REPO/projects.toml}"
 # Optional local config — set MACHINE_USE_1PASSWORD, ONEPASS_SOCK, etc. here
 # without having to export them every shell. Gitignored.
 if [ -f "$REPO/.env" ]; then
-  set -a; . "$REPO/.env"; set +a
+  set -a
+  # shellcheck source=/dev/null
+  . "$REPO/.env"
+  set +a
 fi
 
 # We embed Python heredocs that import tomllib (3.11+). Catch the missing-stdlib
@@ -281,8 +284,10 @@ render_git_templates() {
   gname="${GIT_NAME:-$(git config --global user.name || true)}"
   email="${GIT_EMAIL:-$(git config --global user.email || true)}"
   sigkey=$(read_signing_key)
-  [ -n "$gname" ] && [ -n "$email" ] && [ -n "$sigkey" ] \
-    || { echo "machine: missing git name/email/signing key" >&2; return 1; }
+  if [ -z "$gname" ] || [ -z "$email" ] || [ -z "$sigkey" ]; then
+    echo "machine: missing git name/email/signing key" >&2
+    return 1
+  fi
 
   local out="$REPO/.build/$vm/git"
   mkdir -p "$out"

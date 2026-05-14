@@ -15,7 +15,7 @@ limactl shell "$NAME" -- bash -lc "
   timeout ${SERVER_LIFETIME}s python3 -m http.server $PORT --bind 0.0.0.0
 " </dev/null >/dev/null 2>&1 &
 SSH_PID=$!
-# shellcheck disable=SC2329  # invoked via trap
+# shellcheck disable=SC2317,SC2329  # invoked via trap
 cleanup() {
   kill "$SSH_PID" 2>/dev/null || true
   limactl shell "$NAME" -- bash -lc "pkill -f 'python3 -m http.server $PORT' 2>/dev/null || true" </dev/null >/dev/null 2>&1 || true
