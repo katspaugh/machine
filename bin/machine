@@ -110,6 +110,25 @@ for p in profiles:
 PY
 }
 
+# Print the login shell for this project: explicit `shell` field, else top-level
+# `default_shell`, else "zsh". Allowed: zsh, fish, bash.
+project_shell() {
+  local name="$1"
+  [ -f "$PROJECTS_FILE" ] || { echo zsh; return 0; }
+  python3 - "$name" "$PROJECTS_FILE" <<'PY'
+import sys, tomllib
+name, path = sys.argv[1], sys.argv[2]
+cfg = tomllib.loads(open(path).read())
+project = cfg.get(name) or {}
+shell = project.get("shell") if isinstance(project, dict) else None
+if shell is None:
+    shell = cfg.get("default_shell", "zsh")
+if shell not in ("zsh", "fish", "bash"):
+    sys.exit(f"machine: invalid shell '{shell}' for project '{name}' (use zsh|fish|bash)")
+print(shell)
+PY
+}
+
 # Basename of a git URL, minus the .git suffix.
 repo_basename() {
   basename -s .git "$1"
@@ -137,9 +156,11 @@ push_files_to_vm() {
     /opt/dev-vm/profiles \
     /opt/dev-vm/provision \
     /opt/dev-vm/files/direnv \
+    /opt/dev-vm/files/fish \
     /opt/dev-vm/files/git \
     /opt/dev-vm/files/profile.d \
-    /opt/dev-vm/files/ssh
+    /opt/dev-vm/files/ssh \
+    /opt/dev-vm/files/zsh
 
   # Base provision config + dispatcher.
   limactl shell "$vm" -- sudo tee /opt/dev-vm/provision.toml \
@@ -164,7 +185,7 @@ push_files_to_vm() {
   # would trip `set -e`. Capture state with `|| true`, then restore.
   local saved_nullglob; saved_nullglob=$(shopt -p nullglob || true)
   shopt -s nullglob
-  for f in "$REPO"/files/direnv/* "$REPO"/files/profile.d/* "$REPO"/files/ssh/*; do
+  for f in "$REPO"/files/direnv/* "$REPO"/files/fish/* "$REPO"/files/profile.d/* "$REPO"/files/ssh/* "$REPO"/files/zsh/*; do
     [ -f "$f" ] || continue
     local rel="${f#"$REPO"/files/}"
     limactl shell "$vm" -- sudo tee "/opt/dev-vm/files/$rel" < "$f" >/dev/null
@@ -187,16 +208,22 @@ run_provision_in_vm() {
   local extra=""
   [ "${MACHINE_DRY_RUN:-0}" = "1" ] && extra="--dry-run"
 
+  # MACHINE_SHELL is set by the caller (cmd_up / cmd_update --reprovision) from
+  # the project's `shell` field. Pass it through sudo so the dispatcher's bash
+  # cmds can expand ${MACHINE_SHELL:-zsh}. Unset for `bake` → zsh fallback.
+  local shell_env=""
+  [ -n "${MACHINE_SHELL:-}" ] && shell_env="MACHINE_SHELL=$MACHINE_SHELL"
+
   if [ -n "${MACHINE_PROVISION_LOG:-}" ]; then
     mkdir -p "$(dirname "$MACHINE_PROVISION_LOG")"
-    # shellcheck disable=SC2086  # word-splitting on $args/$extra is intentional
-    limactl shell "$vm" -- sudo python3 /opt/dev-vm/provision/run.py $extra $args 2>&1 \
+    # shellcheck disable=SC2086  # word-splitting on $args/$extra/$shell_env is intentional
+    limactl shell "$vm" -- sudo $shell_env python3 /opt/dev-vm/provision/run.py $extra $args 2>&1 \
       | tee "$MACHINE_PROVISION_LOG"
     # PIPESTATUS lookup via bash builtin.
     return "${PIPESTATUS[0]}"
   fi
-  # shellcheck disable=SC2086  # word-splitting on $args/$extra is intentional
-  limactl shell "$vm" -- sudo python3 /opt/dev-vm/provision/run.py $extra $args
+  # shellcheck disable=SC2086  # word-splitting on $args/$extra/$shell_env is intentional
+  limactl shell "$vm" -- sudo $shell_env python3 /opt/dev-vm/provision/run.py $extra $args
 }
 
 # --- Git template rendering (host-side) -------------------------------------
@@ -435,6 +462,8 @@ cmd_up() {
   local urls profiles
   urls=$(project_urls "$name")
   profiles=$(project_profiles "$name")
+  MACHINE_SHELL=$(project_shell "$name")
+  export MACHINE_SHELL
 
   if ! limactl list -q | grep -qx "$name"; then
     ensure_golden_image
@@ -607,6 +636,8 @@ cmd_update() {
   if [ "$reprovision" -eq 1 ]; then
     local profiles profile_arr=()
     profiles=$(project_profiles "$name")
+    MACHINE_SHELL=$(project_shell "$name")
+    export MACHINE_SHELL
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       profile_arr+=("$p")
@@ -868,9 +899,12 @@ else:
     default_profile = cfg.get("default_profile")
     if default_profile is not None and not isinstance(default_profile, str):
         err("default_profile must be a string")
+    default_shell = cfg.get("default_shell")
+    if default_shell is not None and default_shell not in ("zsh", "fish", "bash"):
+        err("default_shell must be one of: zsh, fish, bash")
     referenced_profiles: set[str] = set()
     for name, project in cfg.items():
-        if name == "default_profile":
+        if name in ("default_profile", "default_shell"):
             continue
         if not isinstance(project, dict):
             continue
@@ -885,6 +919,9 @@ else:
         for p in profiles:
             if p:
                 referenced_profiles.add(p)
+        shell = project.get("shell")
+        if shell is not None and shell not in ("zsh", "fish", "bash"):
+            err(f"[{name}]: shell must be one of: zsh, fish, bash")
     if default_profile:
         referenced_profiles.add(default_profile)
     for p in referenced_profiles:

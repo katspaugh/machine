@@ -9,6 +9,11 @@
       "type": "string",
       "description": "Profile name applied when a project omits `profiles`.",
       "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "default_shell": {
+      "type": "string",
+      "enum": ["zsh", "fish", "bash"],
+      "description": "Login shell applied when a project omits `shell`."
     }
   },
   "additionalProperties": {
@@ -27,6 +32,11 @@
             "type": "array",
             "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
             "description": "Profile TOMLs to stack on top of provision.toml."
+          },
+          "shell": {
+            "type": "string",
+            "enum": ["zsh", "fish", "bash"],
+            "description": "Login shell for the VM's user. Defaults to top-level `default_shell` or `zsh`."
           }
         },
         "required": ["repos"],

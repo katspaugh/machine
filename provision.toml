@@ -21,8 +21,8 @@
 [[apt]]
 packages = [
   "build-essential", "ca-certificates", "curl", "gnupg", "jq", "xz-utils",
-  "unzip", "git", "zsh", "ripgrep", "fd-find", "tmux", "less", "file", "python3",
-  "direnv",
+  "unzip", "git", "zsh", "fish", "ripgrep", "fd-find", "tmux", "less", "file",
+  "python3", "direnv",
 ]
 
 # --- Third-party apt repos -------------------------------------------------
@@ -75,9 +75,31 @@ plugins                 = ["frontend-design", "superpowers", "github",
 default_permission_mode = "auto"
 
 # --- Escape hatch: things that don't fit a typed section --------------------
+# Per-VM login shell. Resolved from projects.toml's `shell` (default "zsh");
+# `bin/machine` exports MACHINE_SHELL into the provision env. The other rc
+# files are installed unconditionally so swapping shells later is one chsh away.
 [[shell]]
-name = "default-shell-zsh"
-cmd  = "chsh -s /usr/bin/zsh $LIMA_USER || true"
+name = "default-shell"
+cmd  = """
+target=${MACHINE_SHELL:-zsh}
+case "$target" in zsh|fish|bash) ;; *) echo "unknown shell: $target" >&2; exit 1 ;; esac
+chsh -s /usr/bin/$target $LIMA_USER || true
+"""
+
+[[shell]]
+name = "install-zshrc"
+cmd  = """
+install -m 0644 -o $LIMA_USER -g $LIMA_USER \
+  /opt/dev-vm/files/zsh/zshrc $USER_HOME/.zshrc
+"""
+
+[[shell]]
+name = "install-fish-config"
+cmd  = """
+install -d -m 0755 -o $LIMA_USER -g $LIMA_USER $USER_HOME/.config/fish
+install -m 0644 -o $LIMA_USER -g $LIMA_USER \
+  /opt/dev-vm/files/fish/config.fish $USER_HOME/.config/fish/config.fish
+"""
 
 [[shell]]
 name = "install-gitconfig"

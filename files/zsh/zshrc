@@ -1,0 +1,52 @@
+# Installed by `machine` provisioning. Edit files/zsh/zshrc and re-provision.
+# Pure-zsh config — no external prompt frameworks or plugin managers.
+
+# --- History ----------------------------------------------------------------
+HISTFILE=$HOME/.zsh_history
+HISTSIZE=50000
+SAVEHIST=50000
+setopt SHARE_HISTORY HIST_IGNORE_DUPS HIST_IGNORE_SPACE HIST_REDUCE_BLANKS \
+       HIST_VERIFY INC_APPEND_HISTORY EXTENDED_HISTORY
+
+# --- Navigation -------------------------------------------------------------
+setopt AUTO_CD AUTO_PUSHD PUSHD_IGNORE_DUPS PUSHD_SILENT
+
+# --- Completion -------------------------------------------------------------
+autoload -Uz compinit && compinit -u
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' '+l:|=* r:|=*'
+zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+
+# --- Keybindings (emacs + history search on arrows) ------------------------
+bindkey -e
+autoload -Uz up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey '^[[A' up-line-or-beginning-search
+bindkey '^[[B' down-line-or-beginning-search
+
+# --- Prompt: user@host  cwd  (git-branch)  $ -------------------------------
+autoload -Uz vcs_info
+zstyle ':vcs_info:git:*' formats ' (%b)'
+zstyle ':vcs_info:git:*' actionformats ' (%b|%a)'
+zstyle ':vcs_info:*' enable git
+setopt PROMPT_SUBST
+precmd() { vcs_info }
+PROMPT='%F{cyan}%n@%m%f %F{yellow}%~%f%F{green}${vcs_info_msg_0_}%f %(?.%F{green}.%F{red})%#%f '
+
+# --- Aliases ----------------------------------------------------------------
+alias ls='ls --color=auto'
+alias ll='ls -lah'
+alias la='ls -A'
+alias grep='grep --color=auto'
+alias g='git'
+alias gs='git status'
+alias gd='git diff'
+alias gl='git log --oneline --graph --decorate'
+
+# fd-find on Debian/Ubuntu installs as `fdfind`; alias to the conventional name
+# unless the user has installed something else there.
+command -v fdfind >/dev/null && ! command -v fd >/dev/null && alias fd='fdfind'
+
+# --- direnv -----------------------------------------------------------------
+command -v direnv >/dev/null && eval "$(direnv hook zsh)"
