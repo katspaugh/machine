@@ -33,13 +33,10 @@ portForwards:
   - guestPortRange: [8080, 8099]
     hostIP: 127.0.0.1
 
-provision:
-  - mode: system
-    script: |
-      set -e
-      mkdir -p /opt/dev-vm/lib /opt/dev-vm/files /opt/dev-vm/provision-runtime
-  # Provision scripts are NOT run from lima.yaml — bin/machine pushes fresh
-  # copies and runs them so changes land without a full rebuild.
+# No provision: block here. bin/machine pushes provision.toml,
+# provision/run.py, profiles, and the files/ tree into /opt/dev-vm/ on every
+# `up` (mkdir -p creates the dirs as needed), so wiring a baked-in step would
+# just go stale.
 
 hostResolver:
   enabled: true
