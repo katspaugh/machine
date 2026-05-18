@@ -131,6 +131,16 @@ flowchart TB
 
 Everything under `files/` is data that lands inside the VM. Everything under `bin/`, `provision/`, `tests/`, `schemas/`, `completions/`, plus the top-level TOMLs and `lima.yaml`, is code or configuration that runs on the host or is read by `provision/run.py`. `assets/` contains README media and the demo recorder; nothing under `assets/` is ever pushed to a VM.
 
+What happens on `bin/machine up <p>`:
+
+- If the VM doesn't exist, `limactl create --name=<p>` against `lima.yaml`, then `limactl start <p>`.
+- Push `provision.toml`, the project's `profiles/<name>.toml` files, `provision/run.py`, and the `files/` tree into `/opt/dev-vm/` on the VM.
+- Render `files/git/*.tpl` on the host (substituting your name, email, and SSH signing pubkey), and push the results to the same location.
+- Run `sudo python3 /opt/dev-vm/provision/run.py provision.toml <profiles...>` inside the VM.
+- Clone the listed `repos` into `~/code/<basename>/` in parallel.
+
+GitHub auth and commit signing both use the forwarded SSH agent — private keys never leave the host; the VM only sees signatures and `ssh -A` proxied auth.
+
 ## Provisioning
 
 The provisioning system is declarative: tools are listed in TOML files, and a small Python dispatcher applies them.
@@ -173,12 +183,6 @@ ln -s "$PWD/completions/_machine" /usr/local/share/zsh/site-functions/_machine
 # fish
 ln -s "$PWD/completions/machine.fish" ~/.config/fish/completions/machine.fish
 ```
-
-## How it works
-
-- `lima.yaml` is the per-VM template. `bin/machine up <p>` runs `limactl create --name=<p> lima.yaml` if the VM doesn't exist, then `limactl start <p>`, then pushes `provision.toml`, the project's profile TOMLs, `provision/run.py`, and the `files/` tree into `/opt/dev-vm/` and runs `sudo python3 /opt/dev-vm/provision/run.py provision.toml <profiles...>`.
-- Git config is rendered on the host from `files/git/*.tpl`, substituting your name/email and SSH signing pubkey, then pushed to the VM.
-- GitHub auth + commit signing both use the forwarded SSH agent. Private keys never leave the host; the VM only sees signatures and `ssh -A` proxied auth.
 
 ## SSH agent
 
