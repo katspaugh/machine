@@ -440,6 +440,46 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def verify_repos_reachable(urls: Sequence[str]) -> None:
+    """Run `git ls-remote` against each URL on the host before we touch the
+    VM. Catches typos and missing access early, when the failure is cheap —
+    otherwise the user discovers them only after a full provision (~minutes)."""
+    if not urls:
+        return
+    print(f"[machine] checking access to {len(urls)} repo(s)…")
+    env = {
+        **os.environ,
+        # Don't block on credential prompts for HTTPS URLs.
+        "GIT_TERMINAL_PROMPT": "0",
+        # accept-new matches the clone path below; -oBatchMode=yes only blocks
+        # password prompts, not agent-driven auth (incl. 1Password's system UI).
+        "GIT_SSH_COMMAND":
+            "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=10",
+    }
+
+    def check(url: str) -> str:
+        out = subprocess.run(
+            ["git", "ls-remote", url, "HEAD"],
+            capture_output=True, text=True, env=env,
+        )
+        if out.returncode == 0:
+            return ""
+        return (out.stderr or out.stdout).strip() or f"git ls-remote exit {out.returncode}"
+
+    failures: list[tuple[str, str]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(urls)) as pool:
+        futs = {pool.submit(check, u): u for u in urls}
+        for fut in concurrent.futures.as_completed(futs):
+            err = fut.result()
+            if err:
+                failures.append((futs[fut], err))
+    if failures:
+        lines = ["cannot reach repo(s) — check projects.toml for typos or access:"]
+        for url, err in failures:
+            lines.append(f"  {url}\n    {err}")
+        die("\n".join(lines))
+
+
 def cmd_up(args: argparse.Namespace) -> int:
     name = args.project
     validate_name(name)
@@ -448,6 +488,9 @@ def cmd_up(args: argparse.Namespace) -> int:
     os.environ["MACHINE_SHELL"] = project_shell(name)
     if args.dry_run:
         os.environ["MACHINE_DRY_RUN"] = "1"
+
+    # Fail fast on typos / access before spending minutes on VM setup.
+    verify_repos_reachable(urls)
 
     if not vm_exists(name):
         # A previous `limactl create` may have left a half-populated VM dir
@@ -618,18 +661,26 @@ def cmd_update(args: argparse.Namespace) -> int:
         push_files_to_vm(name, profiles)
         render_git_templates(name)
         run_provision_in_vm(name, profiles)
+    # apt + npm globals + corepack all need root: apt-installed Node lives in
+    # /usr/lib/node_modules (root-owned), and corepack's activated shims live
+    # alongside it. Keeping these in one sudo block avoids EACCES.
     apt_script = (
         "set -e\n"
         "export DEBIAN_FRONTEND=noninteractive\n"
         "apt-get update -qq\n"
         "apt-get -y upgrade\n"
         "apt-get -y autoremove\n"
-    )
-    run(["limactl", "shell", name, "--", "sudo", "bash", "-c", apt_script])
-    user_script = (
-        "set -e\n"
         "corepack prepare pnpm@latest --activate\n"
         "npm update -g @openai/codex typescript typescript-language-server\n"
+    )
+    run(["limactl", "shell", name, "--", "sudo", "bash", "-c", apt_script])
+    # Pull the plugin list straight from provision.toml — `claude plugin list`'s
+    # output format has changed in the past and is not stable for scripting.
+    provision_cfg = tomllib.loads((REPO / "provision.toml").read_text())
+    plugins = (provision_cfg.get("claude") or {}).get("plugins") or []
+    plugins_arr = " ".join(shlex.quote(p) for p in plugins)
+    user_script = (
+        "set -e\n"
         "curl -fsSL https://claude.ai/install.sh | bash\n"
         # Refresh the Claude plugin marketplace and update each installed
         # plugin. Treat "already up to date" / "no updates" output as success.
@@ -642,7 +693,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         '  printf "%s\\n" "$out" >&2; return $rc\n'
         '}\n'
         'run_claude plugin marketplace update claude-plugins-official || true\n'
-        'for p in $(claude plugin list 2>/dev/null | awk "NR>1 {print \\$1}"); do\n'
+        f'for p in {plugins_arr}; do\n'
         '  run_claude plugin update "$p" || true\n'
         'done\n'
     )

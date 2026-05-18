@@ -2,6 +2,13 @@
 # Fish ships with sensible defaults (prompt, history, completions); we only
 # add the integrations the VM cares about.
 
+# Fish does NOT source /etc/profile.d/*.sh, so the standalone Claude installer's
+# bindir (~/.local/bin) is invisible to fish unless we add it explicitly.
+# fish_add_path is idempotent.
+if test -d $HOME/.local/bin
+    fish_add_path -gP $HOME/.local/bin
+end
+
 if status is-interactive
     # direnv
     if command -q direnv
