@@ -215,13 +215,16 @@ def run_provision_in_vm(vm: str, profiles: Iterable[str]) -> None:
         run(cmd)
         return
     Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc, \
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0) as proc, \
          open(log_path, "wb") as log:
         assert proc.stdout is not None
-        for chunk in iter(lambda: proc.stdout.read(4096), b""):
+        # Read in small chunks and flush immediately so progress is visible.
+        # Python's BufferedWriter on sys.stdout.buffer would otherwise hold
+        # output for up to ~8 KB, making slow steps look stuck.
+        for chunk in iter(lambda: proc.stdout.read(1024), b""):
             sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
             log.write(chunk)
-        sys.stdout.flush()
         rc = proc.wait()
     if rc != 0:
         sys.exit(rc)
@@ -373,10 +376,12 @@ def bake(force: bool = False) -> None:
     # Raw lima.yaml — we're creating the cache, can't reference it.
     run(["limactl", "create", "--tty=false", f"--name={vm}", str(REPO / "lima.yaml")])
     run(["limactl", "start", vm])
+    print("[bake] uploading provision scripts and config…")
     push_files_to_vm(vm, [])  # no profiles
     render_git_templates(vm)
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     os.environ["MACHINE_PROVISION_LOG"] = str(REPO / ".build" / vm / f"provision-{ts}.log")
+    print("[bake] running provision steps inside VM…")
     run_provision_in_vm(vm, [])
     run(["limactl", "stop", vm])
 
@@ -457,6 +462,7 @@ def cmd_up(args: argparse.Namespace) -> int:
         run(["limactl", "create", "--tty=false", f"--name={name}", str(lima_yaml)])
     run(["limactl", "start", name])
 
+    print(f"[machine] uploading provision scripts and config to '{name}'…")
     push_files_to_vm(name, profiles)
     render_git_templates(name)
     if not os.environ.get("MACHINE_PROVISION_LOG"):
