@@ -676,8 +676,12 @@ def cmd_update(args: argparse.Namespace) -> int:
     run(["limactl", "shell", name, "--", "sudo", "bash", "-c", apt_script])
     # Pull the plugin list straight from provision.toml — `claude plugin list`'s
     # output format has changed in the past and is not stable for scripting.
+    # `claude plugin install/update` identifies plugins as `<name>@<marketplace>`,
+    # so we have to qualify the names here too.
     provision_cfg = tomllib.loads((REPO / "provision.toml").read_text())
-    plugins = (provision_cfg.get("claude") or {}).get("plugins") or []
+    claude_cfg = provision_cfg.get("claude") or {}
+    marketplace_id = (claude_cfg.get("marketplace") or "").rsplit("/", 1)[-1]
+    plugins = [f"{p}@{marketplace_id}" for p in (claude_cfg.get("plugins") or [])]
     plugins_arr = " ".join(shlex.quote(p) for p in plugins)
     user_script = (
         "set -e\n"
