@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 scripts=()
 while IFS= read -r f; do
   scripts+=("$f")
-done < <(find bin provision tests -type f \( -name '*.sh' -o -path 'bin/*' \) ! -name '*.tpl')
+done < <(find bin provision tests -type f -name '*.sh')
 
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -x "${scripts[@]}"
@@ -17,5 +17,8 @@ else
     bash -n "$f"
   done
 fi
+
+# bin/machine is Python; sanity-check it parses.
+python3 -c "import ast; ast.parse(open('bin/machine').read())"
 
 echo "lint OK"

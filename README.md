@@ -12,7 +12,7 @@ Claude Code comes pre-installed with the official marketplace and these plugins 
 brew install lima
 ```
 
-`bin/machine` uses `python3` with `tomllib` (Python 3.11+). macOS 14+ ships 3.12 system Python; otherwise `brew install python@3.12`. Run `bin/machine doctor` after the first clone to verify everything resolves.
+`bin/machine` is a Python 3.11+ script (uses `tomllib` from stdlib). macOS 14+ ships 3.12 system Python; otherwise `brew install python@3.12`. Run `bin/machine doctor` after the first clone to verify everything resolves.
 
 - An SSH key on the host, served by an agent the VM can forward. Either:
   - **macOS Keychain** (default): `ssh-add --apple-use-keychain ~/.ssh/id_ed25519`

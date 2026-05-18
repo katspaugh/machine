@@ -34,7 +34,7 @@ jobs:
       - name: Validate example projects.toml
         env:
           PROJECTS_FILE: projects.toml.example
-        run: bash bin/machine validate
+        run: bin/machine validate
 
       - name: Dry-run provision (base only)
         env:
