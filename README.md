@@ -66,6 +66,21 @@ Inside the VM, each repo is at `~/code/<repo-basename>/`. JS deps are installed 
 
 Host browser → VM web app: ports `3000-3010`, `4200`, `5173-5180`, `8080-8099` are forwarded to `127.0.0.1`.
 
+## New tabs inside the VM
+
+`machine ssh <project>` attaches to a per-project tmux session (created on first connect, named after the project, starting at `~/code/<primary-repo>`). New "tabs" need to be created from inside the VM rather than via the host terminal's Cmd+T, because the host shortcut opens a tab on the **host** at the host's cwd — not in the VM.
+
+Inside the session:
+
+| Keys | What |
+|---|---|
+| `Ctrl-b c` | New window ("tab") — starts in the current pane's VM cwd |
+| `Ctrl-b n` / `p` | Next / previous window |
+| `Ctrl-b "` / `%` | Horizontal / vertical split — also inherits the pane cwd |
+| `Ctrl-b d` | Detach (session keeps running; reattach with `machine ssh <project>`) |
+
+The session survives detach, so closing the host terminal and reconnecting later drops you back into the same windows. To get a plain non-tmux shell instead, use `bin/machine run <project> bash -l` or `limactl shell <project>` directly.
+
 ## Commands
 
 | Command | What |
@@ -76,7 +91,7 @@ Host browser → VM web app: ports `3000-3010`, `4200`, `5173-5180`, `8080-8099`
 | `bin/machine validate` | Schema-check `projects.toml` and referenced profiles (no VM) |
 | `bin/machine up <p>` | Create if needed, start, provision (base + project's profiles), clone the repo(s). Idempotent. `--dry-run` prints provision steps without executing. |
 | `bin/machine down <p>` | Stop the VM |
-| `bin/machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`) |
+| `bin/machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). Attaches to a per‑project tmux session so `Ctrl‑b c` opens new windows that stay in the VM at the current pane's cwd. |
 | `bin/machine run <p> <cmd>...` | Non-interactive command in the VM |
 | `bin/machine secrets <p> [<repo>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)) |
 | `bin/machine secrets --clear <p> [<repo>]` | Wipe rendered secrets from VM tmpfs |
