@@ -87,6 +87,7 @@ class TestGoldenHash(unittest.TestCase):
             (fake / "provision").mkdir()
             (fake / "provision.toml").write_text("a")
             (fake / "provision" / "run.py").write_text("b")
+            (fake / "lima.yaml").write_text("c")
             with mock.patch.object(m, "REPO", fake):
                 first = m.golden_hash()
                 (fake / "provision.toml").write_text("a2")

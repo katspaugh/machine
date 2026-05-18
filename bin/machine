@@ -310,6 +310,10 @@ def golden_hash() -> str:
     h = hashlib.sha256()
     h.update((REPO / "provision.toml").read_bytes())
     h.update((REPO / "provision" / "run.py").read_bytes())
+    # lima.yaml affects the disk we bake (size, mounts, etc.) — changes here
+    # must invalidate the cache or `limactl create` may refuse to shrink/grow
+    # the prebaked image to match the new config.
+    h.update((REPO / "lima.yaml").read_bytes())
     return h.hexdigest()[:16]
 
 
@@ -441,6 +445,13 @@ def cmd_up(args: argparse.Namespace) -> int:
         os.environ["MACHINE_DRY_RUN"] = "1"
 
     if not vm_exists(name):
+        # A previous `limactl create` may have left a half-populated VM dir
+        # behind (e.g. base image copied but disk-resize refused). It blocks
+        # the next create, so clear it before retrying.
+        leftover = Path.home() / ".lima" / name
+        if leftover.exists():
+            print(f"[machine] removing stale VM dir {leftover}")
+            shutil.rmtree(leftover)
         ensure_golden_image()
         lima_yaml = render_lima_yaml(name)
         run(["limactl", "create", "--tty=false", f"--name={name}", str(lima_yaml)])
@@ -512,7 +523,10 @@ def clone_repo(vm: str, url: str) -> None:
 
 
 def cmd_down(args: argparse.Namespace) -> int:
-    run(["limactl", "stop", args.project])
+    name = args.project
+    if not vm_exists(name):
+        die(f"VM '{name}' does not exist")
+    run(["limactl", "stop", name])
     return 0
 
 
