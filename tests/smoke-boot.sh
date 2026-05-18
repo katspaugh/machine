@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Smoke: VM is up, SSH-reachable, agent forwarding works, no host mounts leaked.
 set -euo pipefail
 NAME="${MACHINE_NAME:?set MACHINE_NAME to the project/VM to test}"
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Smoke (cypress profile): cypress runs a headless test in chrome/chromium.
+# Requires the project to have profiles = ["cypress"] (or equivalent).
 set -euo pipefail
 NAME="${MACHINE_NAME:?set MACHINE_NAME}"
 

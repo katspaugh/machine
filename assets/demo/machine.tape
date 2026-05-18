@@ -1,3 +1,5 @@
+# VHS script (charmbracelet/vhs) that records the README demo gif.
+# Render with: cd assets/demo && vhs machine.tape  (writes assets/machine.gif).
 Output ../machine.gif
 
 Set Shell "bash"
@@ -10,7 +12,7 @@ Set PlaybackSpeed 1.0
 Set Padding 20
 
 Hide
-Type "alias machine='bash /Users/ivan/Sites/machine/.demo/machine-demo.sh'" Enter
+Type "alias machine='bash /Users/ivan/Sites/machine/assets/demo/machine-demo.sh'" Enter
 Type "PS1=$'\\e[35m➜\\e[0m \\e[36mmachine\\e[0m $ '" Enter
 Type "clear" Enter
 Show

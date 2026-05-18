@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# `machine` CLI — host-side entry point. Reads projects.toml, drives Lima
+# (`limactl create/start/shell`), pushes provision.toml + selected profiles
+# into the VM, and invokes provision/run.py there. Commands: list/ps, doctor,
+# validate, up, down, ssh, run, secrets, status, destroy, rebuild, update,
+# bake. See `machine` (no args) for usage.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"

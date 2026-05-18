@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Smoke: docker daemon is up and `docker run hello-world` succeeds.
 set -euo pipefail
 NAME="${MACHINE_NAME:?set MACHINE_NAME}"
 

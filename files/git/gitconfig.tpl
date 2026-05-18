@@ -1,3 +1,6 @@
+# Template for the VM's ~/.gitconfig. Rendered by bin/machine
+# (render_git_templates) with host values for name/email and the chosen SSH
+# signing pubkey. Commit + tag signing are on by default.
 [user]
   name = __GIT_NAME__
   email = __GIT_EMAIL__

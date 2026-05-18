@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Smoke: every plugin listed in provision.toml's [claude] section is installed,
+# and Claude's permission defaultMode is "auto".
 set -euo pipefail
 NAME="${MACHINE_NAME:?set MACHINE_NAME}"
 

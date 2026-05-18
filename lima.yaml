@@ -1,3 +1,8 @@
+# Per-VM Lima template. `bin/machine up <p>` runs `limactl create --name=<p>`
+# against this file, then pushes provision.toml + the chosen profiles and runs
+# provision/run.py inside the VM. No host filesystem mounts; only the SSH agent
+# and a fixed range of localhost ports are bridged.
+
 vmType: vz
 
 cpus: 4

@@ -1,6 +1,6 @@
 # machine — one isolated Lima VM per project
 
-![machine](files/banner.svg)
+![machine](assets/banner.svg)
 
 A reproducible Lima VM per GitHub project, with Docker, Node, agent CLIs (Claude Code, Codex), GitHub CLI (`gh`), signed git, and tool profiles (e.g. Cypress, Supabase + flyctl) you opt into per project. Each project lives in its own VM so they can't see each other and the host filesystem isn't mounted.
 
@@ -60,7 +60,7 @@ bin/machine up blog        # creates + starts + provisions VM "blog", clones the
 bin/machine ssh blog       # interactive shell, cwd = ~/code/blog
 ```
 
-![demo](machine.gif)
+![demo](assets/machine.gif)
 
 Inside the VM, each repo is at `~/code/<repo-basename>/`. JS deps are installed automatically on first clone (yarn / pnpm / npm, picked from `packageManager` in `package.json`). For env vars, drop a `.env` file in the project — Node's `dotenv` (or your framework) reads it directly. For secrets you'd rather not write to disk, see [1Password env injection](#1password-env-injection).
 
@@ -84,6 +84,52 @@ Host browser → VM web app: ports `3000-3010`, `4200`, `5173-5180`, `8080-8099`
 | `bin/machine update <p>` | Refresh in-place: `apt upgrade`, npm globals, claude installer. `--reprovision` also re-applies TOML configs. |
 | `bin/machine rebuild <p>` | **Destroys** the VM and rebuilds from scratch (reproducibility test). `-y` skips confirmation. |
 | `bin/machine destroy <p>` | Delete the VM. `-y` skips confirmation. |
+
+## Repository layout
+
+```
+machine/
+├── bin/machine             # host CLI: drives Lima, pushes config into the VM
+├── provision/run.py        # in-VM dispatcher: reads merged TOMLs, runs steps
+├── provision.toml          # base provisioning config (always applied)
+├── profiles/*.toml         # opt-in profile add-ons (cypress, python, rust, go, supabase-fly)
+├── projects.toml.example   # template for your projects.toml (the real one is gitignored)
+├── lima.yaml               # Lima VM template (CPU/mem/disk, port-forwards, no host mounts)
+├── files/                  # files copied verbatim into each VM
+│   ├── zsh/                #   ~/.zshrc
+│   ├── fish/               #   ~/.config/fish/config.fish
+│   ├── profile.d/          #   /etc/profile.d snippets (PATH, direnv, corepack)
+│   ├── direnv/             #   `use op_env` helper for 1Password env injection
+│   ├── git/                #   gitconfig + allowed_signers templates (host-rendered)
+│   └── ssh/                #   pre-seeded known_hosts
+├── schemas/                # JSON Schemas for projects.toml + provision.toml (used by `validate`)
+├── completions/            # bash/zsh/fish completions for the `machine` CLI
+├── tests/                  # tests/lint.sh, tests/unit.sh (host); tests/smoke-*.sh (in-VM)
+├── assets/                 # README gif/banner + VHS recording script (not deployed)
+└── .github/workflows/      # CI: lint, unit, validate, dry-run provision
+```
+
+```mermaid
+flowchart TB
+    user(["You (host)"]) --> projects["projects.toml"]
+    user --> cli["bin/machine"]
+    cli --> projects
+    cli --> lima["lima.yaml"]
+    lima -->|limactl create / start| vm[("Lima VM")]
+    cli -->|render| gittpl["files/git/*.tpl"]
+    gittpl --> rendered["~/.gitconfig &<br/>allowed_signers"]
+    cli -->|push| files["files/**"]
+    cli -->|push| base["provision.toml"]
+    cli -->|push| profiles["profiles/&lt;name&gt;.toml"]
+    cli -->|push + run as sudo| disp["provision/run.py"]
+    base --> disp
+    profiles --> disp
+    files --> vm
+    rendered --> vm
+    disp --> vm
+```
+
+Everything under `files/` is data that lands inside the VM. Everything under `bin/`, `provision/`, `tests/`, `schemas/`, `completions/`, plus the top-level TOMLs and `lima.yaml`, is code or configuration that runs on the host or is read by `provision/run.py`. `assets/` contains README media and the demo recorder; nothing under `assets/` is ever pushed to a VM.
 
 ## Provisioning
 

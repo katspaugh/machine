@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Smoke: a fresh commit in the VM is signed by the forwarded SSH key, and the
+# rendered allowed_signers file recognises it as "Good".
 set -euo pipefail
 NAME="${MACHINE_NAME:?set MACHINE_NAME}"
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Smoke: Node major version is current, corepack works, yarn shim is present,
+# COREPACK_ENABLE_DOWNLOAD_PROMPT=0 (so pnpm downloads don't prompt).
 set -euo pipefail
 NAME="${MACHINE_NAME:?set MACHINE_NAME}"
 

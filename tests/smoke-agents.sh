@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Smoke: agent CLIs (claude, codex) are installed and runnable.
 set -euo pipefail
 NAME="${MACHINE_NAME:?set MACHINE_NAME}"
 
