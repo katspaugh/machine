@@ -581,9 +581,7 @@ def cmd_down(args: argparse.Namespace) -> int:
 
 def cmd_ssh(args: argparse.Namespace) -> int:
     name = args.project
-    # Open at ~/code/<primary-repo> if it exists, and attach to a per-project
-    # tmux session so new windows (Ctrl-b c) inherit the pane's VM cwd instead
-    # of falling back to the host's cwd (which is what Cmd+T would do).
+    # Open at ~/code/<primary-repo> if it exists.
     workdir = None
     try:
         urls = project_urls(name)
@@ -603,9 +601,7 @@ def cmd_ssh(args: argparse.Namespace) -> int:
     cmd = ["limactl", "shell"]
     if workdir:
         cmd += ["--workdir", workdir]
-    cmd += [name, "tmux", "new-session", "-A", "-s", name]
-    if workdir:
-        cmd += ["-c", workdir]
+    cmd += [name]
     os.execvp("limactl", cmd)
 
 
