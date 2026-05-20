@@ -1,7 +1,11 @@
 """Unit tests for the SSH config helpers in bin/machine."""
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
+from pathlib import Path as _Path
+from unittest import mock as _mock
 
 from .test_machine import m  # reuses the bin/machine importer
 
@@ -169,6 +173,99 @@ class TestSpliceBlock(unittest.TestCase):
         existing = f"{m.SSH_SENTINEL_OPEN}\nrandom\n"
         with self.assertRaises(m.DuplicateSentinelError):
             m.splice_block(existing, self._block("Host x\n"))
+
+
+class TestRefreshSshConfig(unittest.TestCase):
+    """Integration-ish: mocks limactl + projects.toml, but writes a real file."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.home = _Path(self._tmp.name)
+        (self.home / ".ssh").mkdir()
+        self._patch_path = _mock.patch.object(
+            m, "SSH_CONFIG_PATH", self.home / ".ssh" / "config"
+        )
+        self._patch_path.start()
+
+    def tearDown(self):
+        self._patch_path.stop()
+        self._tmp.cleanup()
+
+    def _fake_show_ssh(self, by_vm: dict[str, str]):
+        def fake(cmd, *args, **kwargs):
+            if cmd[:3] == ["limactl", "show-ssh", "--format=options"]:
+                vm = cmd[-1]
+                stdout = by_vm.get(vm)
+                if stdout is None:
+                    return _mock.Mock(returncode=1, stdout="", stderr="no instance")
+                return _mock.Mock(returncode=0, stdout=stdout, stderr="")
+            raise AssertionError(f"unexpected subprocess call: {cmd}")
+        return fake
+
+    def test_writes_block_for_existing_vms(self):
+        config = self.home / ".ssh" / "config"
+        with _mock.patch.object(m, "load_projects", return_value={
+            "default_profile": "cypress",
+            "blog": {"repos": ["git@github.com:x/y.git"]},
+            "wallet": {"repos": ["git@github.com:x/z.git"]},
+        }), _mock.patch("subprocess.run", side_effect=self._fake_show_ssh({
+            "blog": "Hostname=127.0.0.1\nPort=60123\nUser=u.linux\nIdentityFile=/p/u\n",
+            "wallet": "Hostname=127.0.0.1\nPort=60127\nUser=u.linux\nIdentityFile=/p/u\n",
+        })):
+            m.refresh_ssh_config()
+        content = config.read_text()
+        self.assertIn("Host machine-blog", content)
+        self.assertIn("Port 60123", content)
+        self.assertIn("Host machine-wallet", content)
+        self.assertEqual(oct(config.stat().st_mode & 0o777), "0o600")
+
+    def test_skips_projects_with_no_vm(self):
+        config = self.home / ".ssh" / "config"
+        with _mock.patch.object(m, "load_projects", return_value={
+            "blog": {"repos": []},
+            "ghost": {"repos": []},
+        }), _mock.patch("subprocess.run", side_effect=self._fake_show_ssh({
+            "blog": "Hostname=127.0.0.1\nPort=60123\nUser=u.linux\nIdentityFile=/p/u\n",
+        })):
+            m.refresh_ssh_config()
+        content = config.read_text()
+        self.assertIn("Host machine-blog", content)
+        self.assertNotIn("Host machine-ghost", content)
+
+    def test_preserves_unrelated_entries(self):
+        config = self.home / ".ssh" / "config"
+        original = "Host github.com\n    User git\n"
+        config.write_text(original)
+        with _mock.patch.object(m, "load_projects", return_value={
+            "blog": {"repos": []},
+        }), _mock.patch("subprocess.run", side_effect=self._fake_show_ssh({
+            "blog": "Hostname=127.0.0.1\nPort=60123\nUser=u.linux\nIdentityFile=/p/u\n",
+        })):
+            m.refresh_ssh_config()
+        content = config.read_text()
+        self.assertTrue(content.startswith(original))
+        self.assertIn("Host machine-blog", content)
+
+    def test_no_vms_removes_existing_block(self):
+        config = self.home / ".ssh" / "config"
+        original = "Host github.com\n    User git\n"
+        config.write_text(
+            original
+            + "\n"
+            + f"{m.SSH_SENTINEL_OPEN}\nHost machine-old\n    Port 60001\n{m.SSH_SENTINEL_CLOSE}\n"
+        )
+        with _mock.patch.object(m, "load_projects", return_value={
+            "blog": {"repos": []},
+        }), _mock.patch("subprocess.run", side_effect=self._fake_show_ssh({})):
+            m.refresh_ssh_config()
+        content = config.read_text()
+        self.assertEqual(content, original)
+
+    def test_swallows_errors_with_warning(self):
+        # When load_projects raises an unexpected error, refresh must warn
+        # but not raise.
+        with _mock.patch.object(m, "load_projects", side_effect=PermissionError("nope")):
+            m.refresh_ssh_config()  # must not raise
 
 
 if __name__ == "__main__":

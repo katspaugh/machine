@@ -983,6 +983,65 @@ def splice_block(existing: str, new_block: str) -> str:
     return before + sep + new_block + after
 
 
+def _project_keys(cfg: dict) -> list[str]:
+    """Return the project-table keys from a parsed projects.toml, in the
+    order they appear. Mirrors completions/machine.fish's filter."""
+    return [
+        k for k, v in cfg.items()
+        if k != "default_profile" and isinstance(v, dict)
+    ]
+
+
+def _lima_show_ssh(vm: str) -> dict[str, str] | None:
+    """Return parsed options for `vm`, or None if Lima can't produce them
+    (VM doesn't exist, is half-built, or `limactl show-ssh` errored)."""
+    result = subprocess.run(
+        ["limactl", "show-ssh", "--format=options", vm],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    opts = parse_lima_ssh_options(result.stdout)
+    if not all(k in opts for k in ("Hostname", "Port", "User", "IdentityFile")):
+        return None
+    return opts
+
+
+def refresh_ssh_config() -> None:
+    """Rewrite the machine-managed block in ~/.ssh/config from the current
+    projects.toml × live Lima state. Warns and returns on any error — never
+    raises. Safe to call from any lifecycle command's success path."""
+    try:
+        try:
+            cfg = load_projects()
+        except SystemExit:
+            return
+        entries: list[tuple[str, dict[str, str]]] = []
+        for key in _project_keys(cfg):
+            opts = _lima_show_ssh(key)
+            if opts is not None:
+                entries.append((key, opts))
+        new_block = render_block(entries)
+
+        path = SSH_CONFIG_PATH
+        existing = path.read_text() if path.is_file() else ""
+        updated = splice_block(existing, new_block)
+        if updated == existing:
+            return
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.parent / f".{path.name}.machine-tmp"
+        tmp.write_text(updated)
+        tmp.chmod(0o600)
+        os.replace(tmp, path)
+    except DuplicateSentinelError as e:
+        print(f"[machine] WARN: {e}", file=sys.stderr)
+    except OSError as e:
+        print(f"[machine] WARN: couldn't update {SSH_CONFIG_PATH}: {e}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001 - last-resort safety net
+        print(f"[machine] WARN: ssh config refresh skipped: {e}", file=sys.stderr)
+
+
 # --- Doctor ---------------------------------------------------------------
 def cmd_doctor(args: argparse.Namespace) -> int:
     state = {"fails": 0, "checks": 0}
