@@ -81,6 +81,26 @@ Inside the session:
 
 The session survives detach, so closing the host terminal and reconnecting later drops you back into the same windows. To get a plain non-tmux shell instead, use `bin/machine run <project> bash -l` or `limactl shell <project>` directly.
 
+## IDE integration (VS Code, Cursor, JetBrains Gateway)
+
+`machine up <project>` (and `rebuild`/`destroy`) maintains a sentinel-delimited block in `~/.ssh/config`, so any IDE that reads SSH config sees the VM directly:
+
+```
+Host machine-<project>
+    HostName 127.0.0.1
+    Port <lima-port>
+    User <vm-user>
+    IdentityFile <lima-key>
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    ForwardAgent yes
+```
+
+In VS Code → Remote-SSH: open the host picker, pick `machine-<project>`, then open `/home/<vm-user>/code/<repo>`. Same flow in Cursor and JetBrains Gateway. `ForwardAgent yes` means commit signing and `gh` work in the IDE's integrated terminal just like in `machine ssh`.
+
+`machine doctor` reports drift — missing block, stale ports, orphan entries, loose permissions. The block is rewritten end-to-end on every `up`/`rebuild`/`destroy`, so running `machine up <any-project>` is the recovery path if it ever goes out of sync.
+
 ## Commands
 
 | Command | What |
