@@ -866,6 +866,45 @@ def parse_lima_ssh_options(stdout: str) -> dict[str, str]:
     return result
 
 
+# Order matters — render_block emits these in this order, skipping any
+# field Lima didn't report. Note Lima uses `Hostname` (capital H, lower N).
+_BLOCK_FIELDS = (
+    ("Hostname", "HostName"),
+    ("Port", "Port"),
+    ("User", "User"),
+    ("IdentityFile", "IdentityFile"),
+)
+_BLOCK_STATIC = (
+    "IdentitiesOnly yes",
+    "StrictHostKeyChecking no",
+    "UserKnownHostsFile /dev/null",
+    "ForwardAgent yes",
+)
+
+
+def render_block(entries: list[tuple[str, dict[str, str]]]) -> str:
+    """Render the full sentinel-delimited block for the given entries.
+
+    Returns "" when entries is empty (caller decides whether to write).
+    Each entry is `(project_key, options_dict)` where options_dict is the
+    output of parse_lima_ssh_options().
+    """
+    if not entries:
+        return ""
+    parts = [SSH_SENTINEL_OPEN]
+    for i, (project_key, opts) in enumerate(entries):
+        if i > 0:
+            parts.append("")  # blank line between Host entries
+        parts.append(f"Host {host_alias(project_key)}")
+        for lima_key, ssh_key in _BLOCK_FIELDS:
+            if lima_key in opts:
+                parts.append(f"    {ssh_key} {opts[lima_key]}")
+        for line in _BLOCK_STATIC:
+            parts.append(f"    {line}")
+    parts.append(SSH_SENTINEL_CLOSE)
+    return "\n".join(parts) + "\n"
+
+
 # --- Doctor ---------------------------------------------------------------
 def cmd_doctor(args: argparse.Namespace) -> int:
     state = {"fails": 0, "checks": 0}

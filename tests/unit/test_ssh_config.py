@@ -54,5 +54,59 @@ class TestParseLimaSshOptions(unittest.TestCase):
         self.assertEqual(m.parse_lima_ssh_options(""), {})
 
 
+class TestRenderBlock(unittest.TestCase):
+    def _opts(self, port: str) -> dict:
+        return {
+            "Hostname": "127.0.0.1",
+            "Port": port,
+            "User": "user.linux",
+            "IdentityFile": "/Users/u/.lima/_config/user",
+        }
+
+    def test_empty_entries_returns_empty_string(self):
+        self.assertEqual(m.render_block([]), "")
+
+    def test_single_entry(self):
+        got = m.render_block([("blog", self._opts("60123"))])
+        expected = (
+            f"{m.SSH_SENTINEL_OPEN}\n"
+            "Host machine-blog\n"
+            "    HostName 127.0.0.1\n"
+            "    Port 60123\n"
+            "    User user.linux\n"
+            "    IdentityFile /Users/u/.lima/_config/user\n"
+            "    IdentitiesOnly yes\n"
+            "    StrictHostKeyChecking no\n"
+            "    UserKnownHostsFile /dev/null\n"
+            "    ForwardAgent yes\n"
+            f"{m.SSH_SENTINEL_CLOSE}\n"
+        )
+        self.assertEqual(got, expected)
+
+    def test_multiple_entries_separated_by_blank_line(self):
+        got = m.render_block([
+            ("blog", self._opts("60123")),
+            ("wallet", self._opts("60127")),
+        ])
+        # exactly one blank line between the two Host blocks
+        self.assertIn("ForwardAgent yes\n\nHost machine-wallet\n", got)
+        self.assertTrue(got.startswith(m.SSH_SENTINEL_OPEN + "\n"))
+        self.assertTrue(got.endswith(m.SSH_SENTINEL_CLOSE + "\n"))
+
+    def test_entries_use_host_alias_sanitization(self):
+        got = m.render_block([("my_proj.x", self._opts("60001"))])
+        self.assertIn("Host machine-my-proj-x\n", got)
+
+    def test_missing_option_is_omitted(self):
+        # If Lima didn't report a field (shouldn't happen in practice),
+        # render_block must not crash and must skip that line.
+        partial = {"Hostname": "127.0.0.1", "Port": "60001"}
+        got = m.render_block([("p", partial)])
+        self.assertIn("HostName 127.0.0.1", got)
+        self.assertIn("Port 60001", got)
+        self.assertNotIn("User ", got)
+        self.assertNotIn("IdentityFile ", got)
+
+
 if __name__ == "__main__":
     unittest.main()
