@@ -528,6 +528,7 @@ def cmd_up(args: argparse.Namespace) -> int:
                     rc = e.returncode or 1
     if rc == 0:
         print(f"[machine] '{name}' is ready — run 'machine ssh {name}' to log in.")
+    refresh_ssh_config()
     return rc
 
 
@@ -620,6 +621,7 @@ def cmd_destroy(args: argparse.Namespace) -> int:
     subprocess.run(["limactl", "stop", "-f", name],
                    stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     run(["limactl", "delete", name])
+    refresh_ssh_config()
     return 0
 
 

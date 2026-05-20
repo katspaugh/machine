@@ -268,5 +268,36 @@ class TestRefreshSshConfig(unittest.TestCase):
             m.refresh_ssh_config()  # must not raise
 
 
+class TestLifecycleHooks(unittest.TestCase):
+    def test_cmd_up_calls_refresh_on_success(self):
+        with _mock.patch.object(m, "refresh_ssh_config") as ref, \
+             _mock.patch.object(m, "validate_name"), \
+             _mock.patch.object(m, "project_urls", return_value=[]), \
+             _mock.patch.object(m, "project_profiles", return_value=[]), \
+             _mock.patch.object(m, "project_shell", return_value="zsh"), \
+             _mock.patch.object(m, "verify_repos_reachable"), \
+             _mock.patch.object(m, "vm_exists", return_value=True), \
+             _mock.patch.object(m, "run"), \
+             _mock.patch.object(m, "push_files_to_vm"), \
+             _mock.patch.object(m, "render_git_templates"), \
+             _mock.patch.object(m, "run_provision_in_vm"):
+            ns = _mock.Mock(project="blog", dry_run=False)
+            rc = m.cmd_up(ns)
+        self.assertEqual(rc, 0)
+        ref.assert_called_once()
+
+    def test_cmd_destroy_calls_refresh_on_success(self):
+        with _mock.patch.object(m, "refresh_ssh_config") as ref, \
+             _mock.patch("subprocess.run"), \
+             _mock.patch.object(m, "run") as run_mock:
+            ns = _mock.Mock(project="blog", force=True)
+            rc = m.cmd_destroy(ns)
+        self.assertEqual(rc, 0)
+        ref.assert_called_once()
+        delete_calls = [c for c in run_mock.call_args_list
+                        if c.args and c.args[0][:2] == ["limactl", "delete"]]
+        self.assertTrue(delete_calls)
+
+
 if __name__ == "__main__":
     unittest.main()
