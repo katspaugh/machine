@@ -528,7 +528,7 @@ def cmd_up(args: argparse.Namespace) -> int:
                     rc = e.returncode or 1
     if rc == 0:
         print(f"[machine] '{name}' is ready — run 'machine ssh {name}' to log in.")
-    refresh_ssh_config()
+        refresh_ssh_config()
     return rc
 
 
@@ -1026,16 +1026,39 @@ def refresh_ssh_config() -> None:
         new_block = render_block(entries)
 
         path = SSH_CONFIG_PATH
-        existing = path.read_text() if path.is_file() else ""
+        # Resolve symlink: write through to the resolved target if it points
+        # inside $HOME; otherwise warn and skip rather than silently
+        # replace a symlink to an external location.
+        if path.is_symlink():
+            real = path.resolve()
+            # "Inside home" is anchored at the grandparent of SSH_CONFIG_PATH
+            # (~/.ssh/config → ~/.ssh → ~) so the check works both with the
+            # real home and with a patched path during tests.
+            home_root = path.parent.parent.resolve()
+            try:
+                real.relative_to(home_root)
+            except ValueError:
+                print(
+                    f"[machine] WARN: {path} is a symlink to {real} outside "
+                    "$HOME — refusing to write. Move the file or remove the "
+                    "symlink to enable IDE integration.",
+                    file=sys.stderr,
+                )
+                return
+            write_target = real
+        else:
+            write_target = path
+
+        existing = write_target.read_text() if write_target.is_file() else ""
         updated = splice_block(existing, new_block)
         if updated == existing:
             return
 
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.parent / f".{path.name}.machine-tmp"
+        write_target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = write_target.parent / f".{write_target.name}.machine-tmp"
         tmp.write_text(updated)
         tmp.chmod(0o600)
-        os.replace(tmp, path)
+        os.replace(tmp, write_target)
     except DuplicateSentinelError as e:
         print(f"[machine] WARN: {e}", file=sys.stderr)
     except OSError as e:

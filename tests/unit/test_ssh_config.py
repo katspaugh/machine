@@ -267,6 +267,43 @@ class TestRefreshSshConfig(unittest.TestCase):
         with _mock.patch.object(m, "load_projects", side_effect=PermissionError("nope")):
             m.refresh_ssh_config()  # must not raise
 
+    def test_writes_through_symlink_inside_home(self):
+        # SSH_CONFIG_PATH is a symlink pointing at another file inside the
+        # tmp HOME. The symlink must survive and the real file must be
+        # updated.
+        real = self.home / ".ssh" / "config.real"
+        real.write_text("")
+        link = self.home / ".ssh" / "config"
+        link.symlink_to(real)
+        with _mock.patch.object(m, "load_projects", return_value={
+            "blog": {"repos": []},
+        }), _mock.patch("subprocess.run", side_effect=self._fake_show_ssh({
+            "blog": "Hostname=127.0.0.1\nPort=60123\nUser=u\nIdentityFile=/p\n",
+        })):
+            m.refresh_ssh_config()
+        self.assertTrue(link.is_symlink(), "symlink must survive")
+        self.assertIn("Host machine-blog", real.read_text())
+
+    def test_skips_symlink_outside_home(self):
+        # Symlink points outside $HOME — refresh must warn and not write.
+        outside = _Path(tempfile.mkdtemp())
+        try:
+            real = outside / "ssh_config"
+            real.write_text("preserved\n")
+            link = self.home / ".ssh" / "config"
+            link.symlink_to(real)
+            with _mock.patch.object(m, "load_projects", return_value={
+                "blog": {"repos": []},
+            }), _mock.patch("subprocess.run", side_effect=self._fake_show_ssh({
+                "blog": "Hostname=127.0.0.1\nPort=60123\nUser=u\nIdentityFile=/p\n",
+            })):
+                m.refresh_ssh_config()
+            self.assertEqual(real.read_text(), "preserved\n")
+            self.assertTrue(link.is_symlink())
+        finally:
+            import shutil as _shutil
+            _shutil.rmtree(outside, ignore_errors=True)
+
 
 class TestLifecycleHooks(unittest.TestCase):
     def test_cmd_up_calls_refresh_on_success(self):
@@ -285,6 +322,25 @@ class TestLifecycleHooks(unittest.TestCase):
             rc = m.cmd_up(ns)
         self.assertEqual(rc, 0)
         ref.assert_called_once()
+
+    def test_cmd_up_does_not_call_refresh_on_failure(self):
+        with _mock.patch.object(m, "refresh_ssh_config") as ref, \
+             _mock.patch.object(m, "validate_name"), \
+             _mock.patch.object(m, "project_urls", return_value=["git@github.com:x/y.git"]), \
+             _mock.patch.object(m, "project_profiles", return_value=[]), \
+             _mock.patch.object(m, "project_shell", return_value="zsh"), \
+             _mock.patch.object(m, "verify_repos_reachable"), \
+             _mock.patch.object(m, "vm_exists", return_value=True), \
+             _mock.patch.object(m, "run"), \
+             _mock.patch.object(m, "push_files_to_vm"), \
+             _mock.patch.object(m, "render_git_templates"), \
+             _mock.patch.object(m, "run_provision_in_vm"), \
+             _mock.patch.object(m, "clone_repo",
+                                side_effect=__import__("subprocess").CalledProcessError(1, "git")):
+            ns = _mock.Mock(project="blog", dry_run=False)
+            rc = m.cmd_up(ns)
+        self.assertNotEqual(rc, 0)
+        ref.assert_not_called()
 
     def test_cmd_destroy_calls_refresh_on_success(self):
         with _mock.patch.object(m, "refresh_ssh_config") as ref, \
