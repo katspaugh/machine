@@ -108,5 +108,68 @@ class TestRenderBlock(unittest.TestCase):
         self.assertNotIn("IdentityFile ", got)
 
 
+class TestSpliceBlock(unittest.TestCase):
+    def _block(self, body: str = "Host machine-blog\n    Port 60022\n") -> str:
+        return f"{m.SSH_SENTINEL_OPEN}\n{body}{m.SSH_SENTINEL_CLOSE}\n"
+
+    def test_empty_existing_block_only(self):
+        new = self._block()
+        self.assertEqual(m.splice_block("", new), new)
+
+    def test_existing_no_block_appends_with_blank_line(self):
+        existing = "Host foo\n    HostName 1.2.3.4\n"
+        new = self._block()
+        got = m.splice_block(existing, new)
+        # original content preserved verbatim, then one blank line, then block.
+        self.assertEqual(got, existing + "\n" + new)
+
+    def test_existing_no_block_no_trailing_newline(self):
+        existing = "Host foo\n    HostName 1.2.3.4"  # no trailing newline
+        new = self._block()
+        got = m.splice_block(existing, new)
+        # the original is preserved, exactly one blank line separates.
+        self.assertEqual(got, existing + "\n\n" + new)
+
+    def test_replaces_existing_block(self):
+        old_block = self._block("Host machine-old\n    Port 60011\n")
+        new_block = self._block("Host machine-new\n    Port 60022\n")
+        existing = "Host foo\n    HostName 1.2.3.4\n\n" + old_block
+        got = m.splice_block(existing, new_block)
+        self.assertEqual(got, "Host foo\n    HostName 1.2.3.4\n\n" + new_block)
+
+    def test_replaces_block_in_middle(self):
+        old_block = self._block("Host machine-old\n    Port 60011\n")
+        new_block = self._block("Host machine-new\n    Port 60022\n")
+        suffix = "\nHost bar\n    HostName 5.6.7.8\n"
+        existing = "Host foo\n\n" + old_block + suffix
+        got = m.splice_block(existing, new_block)
+        self.assertEqual(got, "Host foo\n\n" + new_block + suffix)
+
+    def test_empty_new_block_removes_existing(self):
+        existing = "Host foo\n    HostName 1.2.3.4\n\n" + self._block()
+        got = m.splice_block(existing, "")
+        # No trailing blank-line orphan.
+        self.assertEqual(got, "Host foo\n    HostName 1.2.3.4\n")
+
+    def test_empty_new_block_no_existing_is_noop(self):
+        existing = "Host foo\n    HostName 1.2.3.4\n"
+        self.assertEqual(m.splice_block(existing, ""), existing)
+
+    def test_duplicate_open_sentinels_raises(self):
+        existing = self._block() + "\n" + self._block()
+        with self.assertRaises(m.DuplicateSentinelError):
+            m.splice_block(existing, self._block("Host x\n"))
+
+    def test_only_close_sentinel_raises(self):
+        existing = f"random\n{m.SSH_SENTINEL_CLOSE}\nmore\n"
+        with self.assertRaises(m.DuplicateSentinelError):
+            m.splice_block(existing, self._block("Host x\n"))
+
+    def test_only_open_sentinel_raises(self):
+        existing = f"{m.SSH_SENTINEL_OPEN}\nrandom\n"
+        with self.assertRaises(m.DuplicateSentinelError):
+            m.splice_block(existing, self._block("Host x\n"))
+
+
 if __name__ == "__main__":
     unittest.main()

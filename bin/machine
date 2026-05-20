@@ -905,6 +905,84 @@ def render_block(entries: list[tuple[str, dict[str, str]]]) -> str:
     return "\n".join(parts) + "\n"
 
 
+def splice_block(existing: str, new_block: str) -> str:
+    """Replace (or insert, or remove) the machine-managed block in `existing`.
+
+    - `new_block` is the full block including both sentinel lines and a
+      trailing newline, OR the empty string to remove an existing block.
+    - Surrounding content is preserved byte-for-byte.
+    - Raises DuplicateSentinelError if sentinels appear more than once each,
+      only one of the pair appears, or they appear in the wrong order.
+    """
+    open_count = existing.count(SSH_SENTINEL_OPEN)
+    close_count = existing.count(SSH_SENTINEL_CLOSE)
+    if open_count > 1 or close_count > 1:
+        raise DuplicateSentinelError(
+            f"~/.ssh/config has {open_count} open and {close_count} close "
+            "sentinels; expected 0 or 1 of each. Fix by hand."
+        )
+    if open_count != close_count:
+        raise DuplicateSentinelError(
+            "~/.ssh/config has only one of the two sentinel lines; "
+            "expected both or neither. Fix by hand."
+        )
+
+    if open_count == 0:
+        # No block present.
+        if not new_block:
+            return existing
+        if not existing:
+            return new_block
+        # Append, ensuring exactly one blank line between existing content
+        # and the new block.
+        if existing.endswith("\n\n"):
+            sep = ""
+        elif existing.endswith("\n"):
+            sep = "\n"
+        else:
+            sep = "\n\n"
+        return existing + sep + new_block
+
+    # Block present — slice it out, including a single trailing newline
+    # and an optional leading blank-line separator (which we re-emit only
+    # when surrounding content remains and we have something to put back).
+    open_idx = existing.index(SSH_SENTINEL_OPEN)
+    close_idx = existing.index(SSH_SENTINEL_CLOSE)
+    if close_idx < open_idx:
+        raise DuplicateSentinelError(
+            "~/.ssh/config sentinels are out of order. Fix by hand."
+        )
+    # Find end of close-sentinel line.
+    end = existing.find("\n", close_idx)
+    end = len(existing) if end == -1 else end + 1
+    # Extend backward to swallow the single blank line that render_block
+    # writes in front of itself when there's prior content.
+    start = open_idx
+    if start >= 2 and existing[start - 2:start] == "\n\n":
+        start -= 1  # swallow the blank-line separator
+    before = existing[:start]
+    after = existing[end:]
+
+    if not new_block:
+        # Removing. Avoid leaving a stray blank line if before ends with
+        # "\n\n" and after is empty (the case where the block was the
+        # entire trailing content).
+        if not after and before.endswith("\n"):
+            return before
+        return before + after
+
+    # Replacing.
+    if not before:
+        return new_block + after
+    if before.endswith("\n\n"):
+        sep = ""
+    elif before.endswith("\n"):
+        sep = "\n"
+    else:
+        sep = "\n\n"
+    return before + sep + new_block + after
+
+
 # --- Doctor ---------------------------------------------------------------
 def cmd_doctor(args: argparse.Namespace) -> int:
     state = {"fails": 0, "checks": 0}
