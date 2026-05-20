@@ -23,5 +23,36 @@ class TestHostAlias(unittest.TestCase):
         self.assertEqual(m.host_alias("a_b.c"), "machine-a-b-c")
 
 
+class TestParseLimaSshOptions(unittest.TestCase):
+    def test_parses_quoted_and_unquoted(self):
+        out = (
+            'IdentityFile="/Users/example/.lima/_config/user"\n'
+            "User=example.linux\n"
+            "Hostname=127.0.0.1\n"
+            "Port=60022\n"
+            "StrictHostKeyChecking=no\n"
+        )
+        got = m.parse_lima_ssh_options(out)
+        self.assertEqual(got["IdentityFile"], "/Users/example/.lima/_config/user")
+        self.assertEqual(got["User"], "example.linux")
+        self.assertEqual(got["Hostname"], "127.0.0.1")
+        self.assertEqual(got["Port"], "60022")
+
+    def test_ignores_blank_and_comments(self):
+        out = "\n# comment\nUser=bob\n   \n"
+        self.assertEqual(m.parse_lima_ssh_options(out), {"User": "bob"})
+
+    def test_value_with_equals_sign(self):
+        # ProxyCommand-like values can contain '=' inside.
+        out = 'ProxyCommand=ssh -W %h:%p user=foo bastion\n'
+        self.assertEqual(
+            m.parse_lima_ssh_options(out)["ProxyCommand"],
+            "ssh -W %h:%p user=foo bastion",
+        )
+
+    def test_empty_input(self):
+        self.assertEqual(m.parse_lima_ssh_options(""), {})
+
+
 if __name__ == "__main__":
     unittest.main()

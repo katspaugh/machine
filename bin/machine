@@ -843,6 +843,29 @@ def host_alias(project_key: str) -> str:
     return f"machine-{safe}"
 
 
+def parse_lima_ssh_options(stdout: str) -> dict[str, str]:
+    """Parse `limactl show-ssh --format=options` output into a dict.
+
+    Lima emits one `Key=value` per line. Values may be double-quoted; the
+    quotes are stripped. Blank lines and comments are ignored. Values may
+    legitimately contain '=' (e.g. ProxyCommand), so split only on the first.
+    """
+    result: dict[str, str] = {}
+    for raw in stdout.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] == '"':
+            value = value[1:-1]
+        result[key] = value
+    return result
+
+
 # --- Doctor ---------------------------------------------------------------
 def cmd_doctor(args: argparse.Namespace) -> int:
     state = {"fails": 0, "checks": 0}
