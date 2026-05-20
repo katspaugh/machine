@@ -299,5 +299,101 @@ class TestLifecycleHooks(unittest.TestCase):
         self.assertTrue(delete_calls)
 
 
+class TestDoctorSshConfig(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.home = _Path(self._tmp.name)
+        (self.home / ".ssh").mkdir()
+        self._patch_path = _mock.patch.object(
+            m, "SSH_CONFIG_PATH", self.home / ".ssh" / "config"
+        )
+        self._patch_path.start()
+
+    def tearDown(self):
+        self._patch_path.stop()
+        self._tmp.cleanup()
+
+    def _run(self, projects: dict, vms: dict, list_stdout: str = ""):
+        out: list[str] = []
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[:3] == ["limactl", "show-ssh", "--format=options"]:
+                vm = cmd[-1]
+                if vm in vms:
+                    return _mock.Mock(returncode=0, stdout=vms[vm], stderr="")
+                return _mock.Mock(returncode=1, stdout="", stderr="no instance")
+            if cmd[:2] == ["limactl", "list"]:
+                return _mock.Mock(returncode=0, stdout=list_stdout, stderr="")
+            raise AssertionError(f"unexpected: {cmd}")
+        state = {"checks": 0, "fails": 0}
+        with _mock.patch.object(m, "load_projects", return_value=projects), \
+             _mock.patch("subprocess.run", side_effect=fake_run), \
+             _mock.patch("builtins.print", side_effect=lambda *a, **k: out.append(" ".join(str(x) for x in a))):
+            m.doctor_ssh_config(state)
+        return out, state
+
+    def test_warns_when_block_missing_but_vm_exists(self):
+        out, _ = self._run(
+            projects={"blog": {"repos": []}},
+            vms={"blog": "Hostname=127.0.0.1\nPort=60123\nUser=u\nIdentityFile=/p\n"},
+            list_stdout="blog\n",
+        )
+        self.assertTrue(any("WARN" in line and "managed block" in line for line in out), out)
+
+    def test_ok_when_block_matches_lima(self):
+        config = self.home / ".ssh" / "config"
+        config.write_text(m.render_block([
+            ("blog", {"Hostname": "127.0.0.1", "Port": "60123", "User": "u", "IdentityFile": "/p"}),
+        ]))
+        config.chmod(0o600)
+        out, _ = self._run(
+            projects={"blog": {"repos": []}},
+            vms={"blog": "Hostname=127.0.0.1\nPort=60123\nUser=u\nIdentityFile=/p\n"},
+            list_stdout="blog\n",
+        )
+        self.assertFalse(any("WARN" in line for line in out), out)
+
+    def test_warns_on_stale_port(self):
+        config = self.home / ".ssh" / "config"
+        config.write_text(m.render_block([
+            ("blog", {"Hostname": "127.0.0.1", "Port": "60123", "User": "u", "IdentityFile": "/p"}),
+        ]))
+        config.chmod(0o600)
+        out, _ = self._run(
+            projects={"blog": {"repos": []}},
+            vms={"blog": "Hostname=127.0.0.1\nPort=60999\nUser=u\nIdentityFile=/p\n"},
+            list_stdout="blog\n",
+        )
+        self.assertTrue(any("port" in line.lower() and "60123" in line for line in out), out)
+
+    def test_warns_on_orphan_entry(self):
+        config = self.home / ".ssh" / "config"
+        config.write_text(m.render_block([
+            ("old", {"Hostname": "127.0.0.1", "Port": "60111", "User": "u", "IdentityFile": "/p"}),
+        ]))
+        config.chmod(0o600)
+        out, _ = self._run(
+            projects={"blog": {"repos": []}},
+            vms={},
+            list_stdout="",
+        )
+        self.assertTrue(any("orphan" in line.lower() or "no longer exists" in line.lower() for line in out), out)
+
+    def test_warns_on_loose_permissions(self):
+        config = self.home / ".ssh" / "config"
+        config.write_text(m.render_block([
+            ("blog", {"Hostname": "127.0.0.1", "Port": "60123", "User": "u", "IdentityFile": "/p"}),
+        ]))
+        config.chmod(0o644)
+        try:
+            out, _ = self._run(
+                projects={"blog": {"repos": []}},
+                vms={"blog": "Hostname=127.0.0.1\nPort=60123\nUser=u\nIdentityFile=/p\n"},
+                list_stdout="blog\n",
+            )
+            self.assertTrue(any("0600" in line or "permissions" in line.lower() for line in out), out)
+        finally:
+            config.chmod(0o600)
+
+
 if __name__ == "__main__":
     unittest.main()

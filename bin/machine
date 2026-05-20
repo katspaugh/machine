@@ -1044,6 +1044,125 @@ def refresh_ssh_config() -> None:
         print(f"[machine] WARN: ssh config refresh skipped: {e}", file=sys.stderr)
 
 
+def _parse_block_entries(block_text: str) -> dict[str, dict[str, str]]:
+    """Extract `machine-<alias> -> {field: value}` from a rendered block,
+    given only the body between the sentinels."""
+    result: dict[str, dict[str, str]] = {}
+    current_alias: str | None = None
+    for raw in block_text.splitlines():
+        line = raw.strip()
+        if line.startswith("Host "):
+            current_alias = line.split(None, 1)[1].strip()
+            result[current_alias] = {}
+        elif current_alias and line:
+            key, _, value = line.partition(" ")
+            if value:
+                result[current_alias][key] = value.strip()
+    return result
+
+
+def _existing_lima_vms() -> set[str]:
+    """Return the set of VM names known to Lima (any state)."""
+    out = subprocess.run(
+        ["limactl", "list", "-q"],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        return set()
+    return {line.strip() for line in out.stdout.splitlines() if line.strip()}
+
+
+def doctor_ssh_config(state: dict) -> None:
+    """Doctor section: report drift in the machine-managed block of
+    ~/.ssh/config. All findings are WARN-level — never increment fails."""
+    print("[doctor] ssh-config")
+    path = SSH_CONFIG_PATH
+
+    try:
+        cfg = load_projects()
+        project_keys = _project_keys(cfg)
+    except SystemExit:
+        project_keys = []
+
+    live_by_key: dict[str, dict[str, str]] = {}
+    for key in project_keys:
+        opts = _lima_show_ssh(key)
+        if opts is not None:
+            live_by_key[key] = opts
+
+    if not path.is_file():
+        if live_by_key:
+            print(
+                f"  WARN  managed block missing — ~/.ssh/config doesn't exist, "
+                f"run `machine up {next(iter(live_by_key))}` to install it",
+                file=sys.stderr,
+            )
+        else:
+            print("  ok  no VMs and no ssh config — nothing to do")
+        return
+
+    text = path.read_text()
+    try:
+        splice_block(text, "")
+    except DuplicateSentinelError as e:
+        print(f"  WARN  {e}", file=sys.stderr)
+        return
+
+    has_block = SSH_SENTINEL_OPEN in text
+    if not has_block:
+        if live_by_key:
+            print(
+                f"  WARN  managed block missing — run `machine up "
+                f"{next(iter(live_by_key))}` to install it",
+                file=sys.stderr,
+            )
+        else:
+            print("  ok  no VMs and no block — nothing to do")
+        return
+
+    start = text.index(SSH_SENTINEL_OPEN) + len(SSH_SENTINEL_OPEN)
+    end = text.index(SSH_SENTINEL_CLOSE)
+    body = text[start:end]
+    block_entries = _parse_block_entries(body)
+
+    lima_vms = _existing_lima_vms()
+    issues = 0
+    for alias, fields in block_entries.items():
+        matched_key = next(
+            (k for k in project_keys if host_alias(k) == alias),
+            None,
+        )
+        bare_vm = alias[len("machine-"):]
+        if matched_key is None and bare_vm not in lima_vms:
+            print(
+                f"  WARN  entry '{alias}' points at a VM that no longer "
+                f"exists (orphan)",
+                file=sys.stderr,
+            )
+            issues += 1
+            continue
+        live = live_by_key.get(matched_key) if matched_key else None
+        if live and live.get("Port") != fields.get("Port"):
+            print(
+                f"  WARN  entry '{alias}' port {fields.get('Port')} doesn't "
+                f"match Lima ({live.get('Port')}) — run `machine up {matched_key}`",
+                file=sys.stderr,
+            )
+            issues += 1
+
+    mode = path.stat().st_mode & 0o777
+    if mode & 0o077:
+        print(
+            f"  WARN  ~/.ssh/config mode is {oct(mode)} — should be 0600 "
+            "(ssh may refuse to use it)",
+            file=sys.stderr,
+        )
+        issues += 1
+
+    if issues == 0:
+        print(f"  ok  managed block present ({len(block_entries)} entries)")
+
+
 # --- Doctor ---------------------------------------------------------------
 def cmd_doctor(args: argparse.Namespace) -> int:
     state = {"fails": 0, "checks": 0}
@@ -1104,6 +1223,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         state["checks"] += 1
         state["fails"] += 1
         print("  FAIL SSH_AUTH_SOCK unset", file=sys.stderr)
+
+    doctor_ssh_config(state)
 
     print("[doctor] signing key")
     state["checks"] += 1
