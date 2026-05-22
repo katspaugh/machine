@@ -1,0 +1,145 @@
+/* machine — design tokens */
+/* Palette and type scale per design brief 2026-05-22 */
+
+:root {
+  /* Surfaces */
+  --bg:        #0a0a0c;
+  --surface:   #111114;
+  --surface-2: #16161a;
+  --border:    #1f1f23;
+  --border-hi: #2a2a30;
+
+  /* Ink */
+  --fg:        #f4f4f5;
+  --muted:     #9ca3af;
+  --dim:       #52525b;
+
+  /* Accents (from banner.svg) */
+  --cyan:      #22d3ee;
+  --green:     #34d399;
+  --purple:    #a78bfa;
+  --pink:      #f472b6;
+
+  /* Type */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Inter", "Inter Display", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Type sizes */
+  --t-hero:   clamp(40px, 6.4vw, 76px);
+  --t-h2:     clamp(28px, 3.6vw, 44px);
+  --t-h3:     22px;
+  --t-body:   17px;
+  --t-small:  15px;
+  --t-mono:   14px;
+  --t-mono-s: 13px;
+  --t-eyebrow: 13px;
+
+  --lh-tight: 1.04;
+  --lh-snug:  1.2;
+  --lh-body:  1.55;
+
+  /* Spacing (4px base) */
+  --s-1:  4px;
+  --s-2:  8px;
+  --s-3:  12px;
+  --s-4:  16px;
+  --s-5:  24px;
+  --s-6:  32px;
+  --s-7:  48px;
+  --s-8:  64px;
+  --s-9:  80px;
+  --s-10: 128px;
+
+  /* Radii */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+
+  /* Layout */
+  --maxw: 1120px;
+  --maxw-hero: 760px;
+
+  /* Motion */
+  --dur-fast: 80ms;
+  --dur-med:  300ms;
+  --dur-slow: 400ms;
+  --ease-out: cubic-bezier(.2,.6,.2,1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--cyan);
+  color: var(--bg);
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--lh-tight);
+  margin: 0;
+}
+
+p { margin: 0; }
+
+a {
+  color: var(--fg);
+  text-decoration: none;
+  transition: color var(--dur-med) var(--ease-out);
+}
+a:hover { color: var(--cyan); }
+
+code, .mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "ss01", "ss02", "calt" 0;
+  font-size: 0.92em;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* Reveal-on-scroll: fade up 16px */
+.reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity var(--dur-slow) var(--ease-out),
+    transform var(--dur-slow) var(--ease-out);
+}
+.reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+html { scroll-behavior: smooth; }

@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>machine — one isolated VM per project</title>
+  <meta name="description" content="Reproducible, sandboxed Lima VMs for the Claude Code / Codex era. No host filesystem mount. No cross-project bleed. One machine up <project> away." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/components.css" />
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<header class="nav" id="nav">
+  <div class="container nav-inner">
+    <a href="#top" class="nav-brand" aria-label="machine home">
+      <span class="mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+      <span class="wordmark">machine</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#docs" class="docs-link">The machinist's manual</a>
+      <a class="nav-cta" href="https://github.com/katspaugh/machine" rel="noreferrer">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span>GitHub</span>
+        <span class="star">★&nbsp;1.2k</span>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<a id="top"></a>
+
+<!-- ============ HERO ============ -->
+<section class="hero" id="hero">
+  <div class="container">
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="hero-eyebrow">// running <code>npm install</code> on your Mac in 2026 is like eating gas station sushi.</p>
+        <h1>
+          Don't run untrusted code on your machine.<br />
+          Run it in a <span class="machine-2">machine</span>.
+        </h1>
+        <p class="hero-sub">
+          Reproducible, sandboxed Lima VMs for the Claude Code / Codex era.
+          No host filesystem mount. No cross-project bleed.
+          One <code>machine up &lt;project&gt;</code> away.
+        </p>
+        <div class="hero-ctas">
+          <button class="btn btn-primary" data-copy="curl -fsSL https://machine.sh/install | sh" data-label="Boot a machine">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l8 5-8 5z" fill="currentColor" stroke="none"/></svg>
+            <span class="btn-text">Boot a machine</span>
+          </button>
+          <a class="btn btn-secondary" href="#threat-model">
+            Read the threat model <span class="arrow">→</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="hero-term-wrap" aria-hidden="true">
+        <div class="term">
+          <div class="term-head">
+            <div class="term-dots"><span></span><span></span><span></span></div>
+            <div class="label"><span class="accent">lima</span> · <span>blog</span></div>
+          </div>
+          <div class="term-body"><span class="dim">$</span> <span class="cmd">machine up blog</span>
+<span class="dim">→</span> <span class="muted">profile</span>  python · cypress
+<span class="dim">→</span> <span class="muted">image</span>    ubuntu-24.04-arm64
+<span class="dim">→</span> <span class="muted">disk</span>     20G
+<span class="dim">→</span> <span class="muted">cpu</span>      4 · <span class="muted">mem</span> 8G
+<span class="ok">✓</span> ssh ready  <span class="dim">·</span>  <span class="cmd">machine ssh blog</span>
+<span class="dim">$</span> <span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <a class="scroll-hint" href="#machine-room" aria-label="Scroll down">
+    <span>scroll</span>
+    <svg width="14" height="20" viewBox="0 0 14 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+      <path d="M7 3v13"/>
+      <path d="M2 11l5 5 5-5"/>
+    </svg>
+  </a>
+</section>
+
+<!-- ============ MACHINE ROOM ============ -->
+<section class="machine-room" id="machine-room">
+  <div class="container reveal">
+    <p class="section-eyebrow">// section 01 — architecture</p>
+    <h2 class="section-title">The machine room.</h2>
+    <p class="section-intro">
+      Your shell talks to the CLI. The CLI drives Lima. Lima boots a VM per project.
+      Nothing crosses a line that isn't explicitly drawn.
+    </p>
+
+    <svg class="diagram" viewBox="0 0 1080 360" role="img" aria-label="Architecture diagram: host → CLI → Lima → VM, per project.">
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#52525b"/>
+        </marker>
+        <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+          <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#15151a" stroke-width="1"/>
+        </pattern>
+      </defs>
+
+      <!-- subtle bg grid -->
+      <rect x="0" y="0" width="1080" height="360" fill="url(#grid)" opacity=".7"/>
+
+      <!-- lanes -->
+      <g font-family="JetBrains Mono, monospace" font-size="11" fill="#52525b">
+        <text x="20" y="22">// host (your mac)</text>
+        <text x="540" y="22" text-anchor="middle">// hypervisor</text>
+        <text x="1060" y="22" text-anchor="end">// guest vms</text>
+      </g>
+
+      <!-- HOST -->
+      <g>
+        <rect x="20" y="60" width="220" height="220" rx="10" fill="#111114" stroke="#1f1f23"/>
+        <text x="36" y="84" font-family="JetBrains Mono, monospace" font-size="11" fill="#9ca3af">host</text>
+        <text x="36" y="116" font-family="Inter, sans-serif" font-size="16" fill="#f4f4f5" font-weight="500">your machine</text>
+        <text x="36" y="140" font-family="JetBrains Mono, monospace" font-size="12" fill="#52525b">macOS · arm64</text>
+
+        <!-- shell + cli -->
+        <rect x="36" y="166" width="188" height="42" rx="6" fill="#16161a" stroke="#1f1f23"/>
+        <text x="48" y="184" font-family="JetBrains Mono, monospace" font-size="12" fill="#9ca3af">$ shell</text>
+        <text x="48" y="200" font-family="JetBrains Mono, monospace" font-size="12" fill="#22d3ee">↓ machine cli</text>
+
+        <rect x="36" y="218" width="188" height="42" rx="6" fill="#16161a" stroke="#1f1f23"/>
+        <text x="48" y="236" font-family="JetBrains Mono, monospace" font-size="12" fill="#9ca3af">~/.ssh/agent</text>
+        <text x="48" y="252" font-family="JetBrains Mono, monospace" font-size="11" fill="#52525b">forwarded, never copied</text>
+      </g>
+
+      <!-- arrow host → lima -->
+      <line x1="244" y1="170" x2="380" y2="170" stroke="#52525b" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="312" y="158" font-family="JetBrains Mono, monospace" font-size="10" fill="#52525b" text-anchor="middle">control · ssh</text>
+
+      <!-- LIMA -->
+      <g>
+        <rect x="380" y="100" width="320" height="160" rx="10" fill="#111114" stroke="#1f1f23"/>
+        <text x="396" y="124" font-family="JetBrains Mono, monospace" font-size="11" fill="#9ca3af">hypervisor</text>
+        <text x="396" y="156" font-family="Inter, sans-serif" font-size="16" fill="#f4f4f5" font-weight="500">Lima</text>
+        <text x="396" y="180" font-family="JetBrains Mono, monospace" font-size="12" fill="#52525b">Apple Virtualization · vz</text>
+        <line x1="396" y1="200" x2="684" y2="200" stroke="#1f1f23" stroke-dasharray="3 4"/>
+        <text x="396" y="222" font-family="JetBrains Mono, monospace" font-size="11" fill="#22d3ee">• no host fs mount</text>
+        <text x="396" y="240" font-family="JetBrains Mono, monospace" font-size="11" fill="#34d399">• tmpfs secrets</text>
+      </g>
+
+      <!-- arrow lima → vm -->
+      <line x1="704" y1="170" x2="828" y2="170" stroke="#52525b" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="766" y="158" font-family="JetBrains Mono, monospace" font-size="10" fill="#52525b" text-anchor="middle">boot · provision</text>
+
+      <!-- VMs stack: 3 layered cards -->
+      <g>
+        <!-- back card -->
+        <rect x="852" y="78" width="200" height="116" rx="10" fill="#111114" stroke="#1f1f23"/>
+        <text x="868" y="100" font-family="JetBrains Mono, monospace" font-size="11" fill="#52525b">vm · wallet</text>
+        <rect x="868" y="116" width="60" height="6" rx="3" fill="#1f1f23"/>
+        <rect x="868" y="130" width="120" height="6" rx="3" fill="#1f1f23"/>
+        <rect x="868" y="144" width="90" height="6" rx="3" fill="#1f1f23"/>
+        <circle cx="1030" cy="98" r="4" fill="#a78bfa"/>
+
+        <!-- mid card -->
+        <rect x="836" y="118" width="216" height="142" rx="10" fill="#111114" stroke="#1f1f23"/>
+        <text x="852" y="142" font-family="JetBrains Mono, monospace" font-size="11" fill="#52525b">vm · scraper</text>
+        <rect x="852" y="158" width="80" height="6" rx="3" fill="#1f1f23"/>
+        <rect x="852" y="172" width="140" height="6" rx="3" fill="#1f1f23"/>
+        <rect x="852" y="186" width="100" height="6" rx="3" fill="#1f1f23"/>
+        <circle cx="1030" cy="140" r="4" fill="#34d399"/>
+
+        <!-- front card (active) -->
+        <rect x="820" y="158" width="232" height="160" rx="10" fill="#16161a" stroke="#2a2a30"/>
+        <text x="836" y="182" font-family="JetBrains Mono, monospace" font-size="11" fill="#9ca3af">vm · blog</text>
+        <text x="836" y="206" font-family="Inter, sans-serif" font-size="14" fill="#f4f4f5" font-weight="500">ubuntu-24.04-arm64</text>
+        <rect x="836" y="222" width="100" height="6" rx="3" fill="#1f1f23"/>
+        <rect x="836" y="238" width="160" height="6" rx="3" fill="#1f1f23"/>
+        <rect x="836" y="254" width="120" height="6" rx="3" fill="#1f1f23"/>
+        <circle cx="1030" cy="180" r="4" fill="#22d3ee"/>
+        <text x="1030" y="184" font-family="JetBrains Mono, monospace" font-size="10" fill="#22d3ee" text-anchor="end" dx="-10">running</text>
+      </g>
+
+      <!-- caption labels under host: dotted barrier -->
+      <line x1="244" y1="320" x2="820" y2="320" stroke="#1f1f23" stroke-dasharray="2 6"/>
+      <text x="532" y="338" font-family="JetBrains Mono, monospace" font-size="11" fill="#52525b" text-anchor="middle">— isolation barrier —</text>
+    </svg>
+
+    <div class="diagram-captions">
+      <div class="cap">
+        <div class="k">agent-forwarded SSH</div>
+        <div class="v">Your <code>ssh-agent</code> is forwarded into the guest at exec time. The key file never leaves the host.</div>
+      </div>
+      <div class="cap">
+        <div class="k">tmpfs-only secrets</div>
+        <div class="v">Secrets from 1Password land in <code>/run/secrets</code>, a tmpfs that's wiped at shutdown.</div>
+      </div>
+      <div class="cap">
+        <div class="k">no host fs mount</div>
+        <div class="v">Lima's default <code>mountType</code> is disabled. The VM can't read your <code>~/</code> or anything else.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ WHY 3-UP ============ -->
+<section id="why">
+  <div class="container reveal">
+    <p class="section-eyebrow">// section 02 — why bother</p>
+    <h2 class="section-title">Three things, in order of importance.</h2>
+
+    <div class="why-grid">
+      <article class="why-card">
+        <div class="why-num">01</div>
+        <h3>Isolated by default.</h3>
+        <p>One VM per project. The blast radius of a bad <code>postinstall</code> script is one VM, not your laptop.</p>
+        <code>machine up blog</code>
+      </article>
+      <article class="why-card">
+        <div class="why-num">02</div>
+        <h3>Reproducible from TOML.</h3>
+        <p>Check <code>projects.toml</code> and <code>provision.toml</code> into the repo. Your teammate runs <code>up</code>, gets the same box.</p>
+        <code>machine rebuild blog</code>
+      </article>
+      <article class="why-card">
+        <div class="why-num">03</div>
+        <h3>Agent-ready, on day one.</h3>
+        <p>Claude Code, Codex, Aider, and friends ship in the base image. Point them at the SSH host and let them rip.</p>
+        <code>machine ssh blog</code>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ GHOST (threat model) ============ -->
+<section id="threat-model">
+  <div class="container reveal">
+    <p class="section-eyebrow">// section 03 — threat model</p>
+    <h2 class="section-title">Ghost in the machine.</h2>
+    <p class="section-intro">
+      The point of a VM is the boundary. Here's exactly what crosses it and what doesn't.
+      No vibes — the file path on the right is real.
+    </p>
+
+    <div class="ghost">
+      <div class="col allow">
+        <h4><span class="glyph">✓</span> what the VM can reach</h4>
+        <ul>
+          <li><span class="ic">→</span><div>The project directory <em>you pointed it at</em><span class="sub">~/code/blog → /workspace/blog</span></div></li>
+          <li><span class="ic">→</span><div>Your forwarded SSH agent socket<span class="sub">$SSH_AUTH_SOCK · used, never copied</span></div></li>
+          <li><span class="ic">→</span><div>Secrets you declared in <code>provision.toml</code><span class="sub">/run/secrets/* (tmpfs)</span></div></li>
+          <li><span class="ic">→</span><div>Outbound network on declared ports<span class="sub">443, plus what you opened</span></div></li>
+          <li><span class="ic">→</span><div>Its own filesystem, fully<span class="sub">disposable. `machine rebuild` is cheap.</span></div></li>
+        </ul>
+      </div>
+
+      <div class="col deny">
+        <h4><span class="glyph">✕</span> what the VM cannot reach</h4>
+        <ul>
+          <li><span class="ic">×</span><div>Your dotfiles, shells, history<span class="sub">~/.bash_history · ~/.config · ~/.aws</span></div></li>
+          <li><span class="ic">×</span><div>Anything else in your home directory<span class="sub">~/Documents · ~/Desktop · ~/Library</span></div></li>
+          <li><span class="ic">×</span><div>Other projects' VMs, files, or sockets<span class="sub">no shared volumes, no cross-VM ssh</span></div></li>
+          <li><span class="ic">×</span><div>Your 1Password vault directly<span class="sub">only items you allow-list</span></div></li>
+          <li><span class="ic">×</span><div>The host disk, the keychain, Touch ID<span class="sub">if it's on macOS, it stays on macOS</span></div></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MACHINE SHOP ============ -->
+<section id="profiles">
+  <div class="container reveal">
+    <p class="section-eyebrow">// section 04 — profiles</p>
+    <h2 class="section-title">The machine shop.</h2>
+    <p class="section-intro">
+      Profiles stack. Pick a base, layer extras in <code>provision.toml</code>, or write your own from scratch in 30 lines.
+    </p>
+
+    <div class="profile-grid">
+      <article class="profile-card">
+        <div class="head">
+          <div class="profile-icon" style="color: var(--green)">▢</div>
+          <div class="name">cypress</div>
+        </div>
+        <p class="desc">Headless Chromium, X virtual framebuffer, a sane Node, and the test runner pre-installed.</p>
+        <div class="chips">
+          <span class="chip">node 22</span><span class="chip">chromium</span><span class="chip">xvfb</span><span class="chip">cypress</span>
+        </div>
+      </article>
+
+      <article class="profile-card">
+        <div class="head">
+          <div class="profile-icon" style="color: var(--purple)">◬</div>
+          <div class="name">supabase-fly</div>
+        </div>
+        <p class="desc">The two CLIs you actually use when shipping a backend, with Docker and a Postgres client to match.</p>
+        <div class="chips">
+          <span class="chip">docker</span><span class="chip">flyctl</span><span class="chip">supabase</span><span class="chip">psql</span>
+        </div>
+      </article>
+
+      <article class="profile-card">
+        <div class="head">
+          <div class="profile-icon" style="color: var(--cyan)">π</div>
+          <div class="name">python</div>
+        </div>
+        <p class="desc">uv, pyenv, the system build deps. Activated venv in <code>/workspace/.venv</code> on shell login.</p>
+        <div class="chips">
+          <span class="chip">python 3.12</span><span class="chip">uv</span><span class="chip">pyenv</span><span class="chip">build-essential</span>
+        </div>
+      </article>
+
+      <article class="profile-card">
+        <div class="head">
+          <div class="profile-icon" style="color: var(--pink)">◆</div>
+          <div class="name">rust</div>
+        </div>
+        <p class="desc">rustup with the stable + nightly toolchains, sccache for warm rebuilds, and a sensible <code>cargo</code> config.</p>
+        <div class="chips">
+          <span class="chip">rustup</span><span class="chip">sccache</span><span class="chip">cargo-watch</span><span class="chip">mold</span>
+        </div>
+      </article>
+
+      <article class="profile-card">
+        <div class="head">
+          <div class="profile-icon" style="color: var(--cyan)">go</div>
+          <div class="name">go</div>
+        </div>
+        <p class="desc">A Go toolchain you didn't have to install five times, plus golangci-lint and delve out of the box.</p>
+        <div class="chips">
+          <span class="chip">go 1.23</span><span class="chip">golangci-lint</span><span class="chip">delve</span><span class="chip">air</span>
+        </div>
+      </article>
+
+      <article class="profile-card byo">
+        <div class="head">
+          <div class="profile-icon" style="color: var(--muted)">+</div>
+          <div class="name">your own</div>
+        </div>
+        <p class="desc">A profile is a TOML file and a shell script. Copy any of the above, change three lines, commit it.</p>
+        <div class="chips">
+          <span class="chip">provision.toml</span><span class="chip">setup.sh</span>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LIVE DEMO ============ -->
+<section id="demo">
+  <div class="container reveal">
+    <p class="section-eyebrow">// section 05 — live</p>
+    <h2 class="section-title">From nothing to a shell, in 38 seconds.</h2>
+    <p class="section-intro">
+      Recorded once, played back forever. The first <code>up</code> is the slow one — every subsequent boot is cached.
+    </p>
+
+    <div class="demo-wrap">
+      <div class="demo-head">
+        <div class="left">
+          <div class="term-dots"><span></span><span></span><span></span></div>
+          <span>~/code/blog</span>
+        </div>
+        <div class="right">
+          <span id="demo-clock">00:00 / 00:38</span>
+          <button class="demo-restart" id="demo-restart">⟲ restart</button>
+        </div>
+      </div>
+      <div class="demo-body" id="demo-body"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TEND ============ -->
+<section id="lifecycle">
+  <div class="container reveal">
+    <p class="section-eyebrow">// section 06 — lifecycle</p>
+    <h2 class="section-title">Tend the machine.</h2>
+    <p class="section-intro">
+      Eight commands, no manifesto. Most days you'll use the first two.
+    </p>
+
+    <div class="cmd-grid">
+      <div class="cmd-card">
+        <div class="k">machine up <span class="sub">&lt;p&gt;</span></div>
+        <div class="v">Boot the VM. First time provisions; after that it's a warm restart.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine ssh <span class="sub">&lt;p&gt;</span></div>
+        <div class="v">Open an interactive shell. With your agent forwarded.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine update <span class="sub">&lt;p&gt;</span></div>
+        <div class="v">Re-run provisioning on a running box. Tools change; the VM doesn't.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine rebuild <span class="sub">&lt;p&gt;</span></div>
+        <div class="v">Tear the VM down to the image and provision from scratch.</div>
+      </div>
+      <div class="cmd-card destroy">
+        <div class="k">machine destroy <span class="sub">&lt;p&gt;</span></div>
+        <div class="v">Rage-quit a machine. Disk, state, secrets, all gone.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine doctor</div>
+        <div class="v">Check Lima, network, agent, and disk space. Tells you what's drifted.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine ps</div>
+        <div class="v">List your VMs, their states, and where the SSH ports landed.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine secrets <span class="sub">&lt;p&gt;</span></div>
+        <div class="v">Show which 1Password items resolve into <code>/run/secrets</code> for this project.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ IDE INTEGRATION ============ -->
+<section id="ide">
+  <div class="container reveal">
+    <p class="section-eyebrow">// section 07 — editors</p>
+    <h2 class="section-title">Your editor doesn't have to know it's a VM.</h2>
+
+    <div class="ide-wrap">
+      <div class="ide-head">
+        <div class="term-dots"><span></span><span></span><span></span></div>
+        <span>Visual Studio Code — Remote-SSH: connect to host…</span>
+      </div>
+      <div class="ide-body">
+        <div class="ide-picker">
+          <div class="picker-input">
+            <span>›</span>
+            <span class="placeholder">Select configured SSH host or enter user@host</span>
+          </div>
+          <div class="picker-list">
+            <div class="row active">
+              <span class="glyph">⌂</span>
+              <span class="name">machine-blog</span>
+              <span class="meta">lima · 22:60010</span>
+            </div>
+            <div class="row">
+              <span class="glyph">⌂</span>
+              <span class="name">machine-wallet</span>
+              <span class="meta">lima · 22:60011</span>
+            </div>
+            <div class="row">
+              <span class="glyph">⌂</span>
+              <span class="name">machine-scraper</span>
+              <span class="meta">lima · 22:60012</span>
+            </div>
+            <div class="row">
+              <span class="glyph">+</span>
+              <span class="name" style="color: var(--muted)">Add new SSH host…</span>
+              <span class="meta"></span>
+            </div>
+          </div>
+        </div>
+        <p class="ide-caption"><code>machine up</code> writes the host into <code>~/.ssh/config.d/machine</code>. Cursor and JetBrains Gateway pick it up too.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FINAL CTA ============ -->
+<section id="install">
+  <div class="container reveal">
+    <div class="final">
+      <h2>Boot a machine.</h2>
+      <p>One line. Homebrew under the hood. Uninstalls cleanly when you're done.</p>
+
+      <div class="installer" id="installer">
+        <div class="prompt">$</div>
+        <div class="cmd" id="install-cmd">curl -fsSL https://machine.sh/install | sh</div>
+        <button class="copy-btn" id="install-copy" data-copy="curl -fsSL https://machine.sh/install | sh">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11V3a1 1 0 0 1 1-1h8"/></svg>
+          <span class="label">copy</span>
+        </button>
+      </div>
+
+      <div class="final-actions">
+        <a class="btn btn-secondary" href="#docs">Open the manual <span class="arrow">→</span></a>
+        <a class="btn btn-secondary" href="https://github.com/katspaugh/machine">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          Star on GitHub · <span class="mono" style="color: var(--muted)">1.2k</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer id="docs">
+  <div class="container">
+    <div class="foot-grid">
+      <div>
+        <div class="nav-brand" style="margin-bottom: var(--s-4)">
+          <span class="mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+          <span class="wordmark">machine</span>
+        </div>
+        <p class="foot-tag">Built by people who got tired of cleaning up after their machines.</p>
+      </div>
+      <div class="foot-col">
+        <h5>// docs</h5>
+        <ul>
+          <li><a href="#">Quickstart</a></li>
+          <li><a href="#">Configuration</a></li>
+          <li><a href="#">CLI reference</a></li>
+          <li><a href="#">Troubleshooting</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h5>// profiles</h5>
+        <ul>
+          <li><a href="#">cypress</a></li>
+          <li><a href="#">supabase-fly</a></li>
+          <li><a href="#">python · rust · go</a></li>
+          <li><a href="#">Write your own</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h5>// safety</h5>
+        <ul>
+          <li><a href="#threat-model">Threat model</a></li>
+          <li><a href="#">Secrets (1Password)</a></li>
+          <li><a href="#">IDE integration</a></li>
+          <li><a href="#">License · MIT</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h5>// elsewhere</h5>
+        <ul>
+          <li><a href="https://github.com/katspaugh/machine">GitHub</a></li>
+          <li><a href="#">Lima upstream</a></li>
+          <li><a href="#">Design system</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="foot-bottom">
+      <span>// no warranty. no telemetry. no machine-learning angle.</span>
+      <span>v0.6.3 · MIT · 2026</span>
+    </div>
+  </div>
+</footer>
+
+<script src="scripts/site.js"></script>
+</body>
+</html>
