@@ -23,6 +23,16 @@ cd homebrew-machine && git add . && git commit -m "Initial formula" && git push
 
 ## Cutting a release
 
+The one-shot way:
+
+```sh
+scripts/release.sh 0.1.1
+```
+
+It tags, computes sha256, bumps both formulas, pushes both repos, and creates a GitHub Release with auto-generated notes. Requires a clean working tree and `gh auth status` healthy.
+
+### Or by hand
+
 1. Tag this repo and push the tag:
    ```sh
    git tag v0.X.0 && git push origin v0.X.0
