@@ -172,7 +172,7 @@ class TestLoadDotenv(unittest.TestCase):
                 'SINGLE=\'one two\'\n'
                 '\n'
             )
-            with mock.patch.object(m, "REPO", fake), \
+            with mock.patch.object(m, "CONFIG_DIR", fake), \
                  mock.patch.dict(os.environ, {}, clear=False):
                 # Ensure starting state.
                 for k in ("FOO", "QUOTED", "SINGLE"):

@@ -842,6 +842,19 @@ section + section { padding-top: 0; }
   max-width: 520px;
   margin: 0 auto var(--s-5);
 }
+.install-alt {
+  font-size: 0.85rem;
+  max-width: 56ch;
+  margin: calc(var(--s-5) * -0.5) auto var(--s-6) !important;
+  color: var(--muted);
+}
+.install-alt a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+}
+.install-alt a:hover { text-decoration-color: currentColor; }
 
 /* ---------- Footer ---------- */
 footer {

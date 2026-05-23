@@ -56,7 +56,7 @@
           One <code>machine up &lt;project&gt;</code> away.
         </p>
         <div class="hero-ctas">
-          <button class="btn btn-primary" data-copy="git clone git@github.com:katspaugh/machine.git ~/Sites/machine" data-label="Boot a machine">
+          <button class="btn btn-primary" data-copy="brew install katspaugh/machine/machine" data-label="Boot a machine">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l8 5-8 5z" fill="currentColor" stroke="none"/></svg>
             <span class="btn-text">Boot a machine</span>
           </button>
@@ -476,16 +476,21 @@
   <div class="container reveal">
     <div class="final">
       <h2>Boot a machine.</h2>
-      <p>Clone the repo, drop your projects into <code>projects.toml</code>, and run <code>machine up</code>.</p>
+      <p>Install from the Homebrew tap, run <code>machine init</code>, then <code>machine up</code>.</p>
 
       <div class="installer" id="installer">
         <div class="prompt">$</div>
-        <div class="cmd" id="install-cmd">git clone git@github.com:katspaugh/machine.git ~/Sites/machine</div>
-        <button class="copy-btn" id="install-copy" data-copy="git clone git@github.com:katspaugh/machine.git ~/Sites/machine">
+        <div class="cmd" id="install-cmd">brew install katspaugh/machine/machine</div>
+        <button class="copy-btn" id="install-copy" data-copy="brew install katspaugh/machine/machine">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11V3a1 1 0 0 1 1-1h8"/></svg>
           <span class="label">copy</span>
         </button>
       </div>
+      <p class="install-alt">
+        Prefer to clone? <a href="https://github.com/katspaugh/machine#setup">git clone the repo</a> — same code, dev mode.
+        Read the <a href="https://github.com/katspaugh/homebrew-machine/blob/main/Formula/machine.rb">formula</a>
+        or <a href="https://github.com/katspaugh/machine/blob/main/docs/TAP.md">verify the release</a> before installing.
+      </p>
 
       <div class="final-actions">
         <a class="btn btn-secondary" href="#docs">Open the manual <span class="arrow">→</span></a>

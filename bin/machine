@@ -23,7 +23,26 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 REPO = Path(__file__).resolve().parent.parent
-PROJECTS_FILE = Path(os.environ.get("PROJECTS_FILE") or REPO / "projects.toml")
+# In a git checkout REPO == the cloned tree (config + data + state colocated).
+# Under a Homebrew install REPO == the libexec data tree (read-only); user
+# config moves to ~/.config/machine and generated state to ~/.local/state.
+_IN_CHECKOUT = (REPO / ".git").exists()
+
+
+def _env_dir(name: str, default: Path) -> Path:
+    v = os.environ.get(name)
+    return Path(v).expanduser() if v else default
+
+
+CONFIG_DIR = _env_dir(
+    "MACHINE_CONFIG_DIR",
+    REPO if _IN_CHECKOUT else Path.home() / ".config" / "machine",
+)
+STATE_DIR = _env_dir(
+    "MACHINE_STATE_DIR",
+    REPO / ".build" if _IN_CHECKOUT else Path.home() / ".local" / "state" / "machine",
+)
+PROJECTS_FILE = Path(os.environ.get("PROJECTS_FILE") or CONFIG_DIR / "projects.toml")
 GOLDEN_DIR = Path.home() / ".cache" / "machine"
 ONEPASS_SOCK_DEFAULT = (
     Path.home()
@@ -41,8 +60,8 @@ def die(msg: str, code: int = 1) -> "Any":
 
 # --- Bootstrap -------------------------------------------------------------
 def load_dotenv() -> None:
-    """Load REPO/.env as KEY=value pairs. Gitignored, optional."""
-    env = REPO / ".env"
+    """Load CONFIG_DIR/.env as KEY=value pairs. Gitignored, optional."""
+    env = CONFIG_DIR / ".env"
     if not env.is_file():
         return
     for raw in env.read_text().splitlines():
@@ -72,7 +91,10 @@ def configure_ssh_agent() -> None:
 # --- Projects TOML helpers -------------------------------------------------
 def load_projects() -> dict[str, Any]:
     if not PROJECTS_FILE.is_file():
-        die(f"{PROJECTS_FILE} not found. Copy projects.toml.example and edit.")
+        die(
+            f"{PROJECTS_FILE} not found. "
+            f"Run `machine init` (or copy {REPO / 'projects.toml.example'} to {PROJECTS_FILE} and edit)."
+        )
     return tomllib.loads(PROJECTS_FILE.read_text())
 
 
@@ -276,7 +298,7 @@ def render_git_templates(vm: str) -> None:
     sigkey = read_signing_key()
     if not (gname and email and sigkey):
         die("missing git name/email/signing key")
-    out = REPO / ".build" / vm / "git"
+    out = STATE_DIR / vm / "git"
     out.mkdir(parents=True, exist_ok=True)
     subs = {
         "__GIT_NAME__": gname,
@@ -340,7 +362,7 @@ def golden_fresh() -> bool:
 def render_lima_yaml(vm: str) -> Path:
     """Materialize a per-VM lima.yaml in .build/<vm>/. Prepend the cached
     image as the highest-priority `images:` entry when one is available."""
-    out = REPO / ".build" / vm / "lima.yaml"
+    out = STATE_DIR / vm / "lima.yaml"
     out.parent.mkdir(parents=True, exist_ok=True)
     src_text = (REPO / "lima.yaml").read_text()
     if not golden_fresh():
@@ -380,7 +402,7 @@ def bake(force: bool = False) -> None:
     push_files_to_vm(vm, [])  # no profiles
     render_git_templates(vm)
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    os.environ["MACHINE_PROVISION_LOG"] = str(REPO / ".build" / vm / f"provision-{ts}.log")
+    os.environ["MACHINE_PROVISION_LOG"] = str(STATE_DIR / vm / f"provision-{ts}.log")
     print("[bake] running provision steps inside VM…")
     run_provision_in_vm(vm, [])
     run(["limactl", "stop", vm])
@@ -510,7 +532,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     render_git_templates(name)
     if not os.environ.get("MACHINE_PROVISION_LOG"):
         ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        log = REPO / ".build" / name / f"provision-{ts}.log"
+        log = STATE_DIR / name / f"provision-{ts}.log"
         os.environ["MACHINE_PROVISION_LOG"] = str(log)
         print(f"[machine] provision log: {log}")
     run_provision_in_vm(name, profiles)
@@ -1186,6 +1208,21 @@ def doctor_ssh_config(state: dict) -> None:
         print(f"  ok  managed block present ({len(block_entries)} entries)")
 
 
+# --- Init -----------------------------------------------------------------
+def cmd_init(args: argparse.Namespace) -> int:
+    """Create CONFIG_DIR/projects.toml from the bundled example."""
+    if PROJECTS_FILE.is_file() and not getattr(args, "force", False):
+        die(f"{PROJECTS_FILE} already exists (pass --force to overwrite)")
+    example = REPO / "projects.toml.example"
+    if not example.is_file():
+        die(f"missing template {example}")
+    PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PROJECTS_FILE.write_text(example.read_text())
+    print(f"wrote {PROJECTS_FILE}")
+    print(f"edit it, then run: machine up <project>")
+    return 0
+
+
 # --- Doctor ---------------------------------------------------------------
 def cmd_doctor(args: argparse.Namespace) -> int:
     state = {"fails": 0, "checks": 0}
@@ -1378,6 +1415,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor", help="Preflight: lima, git config, SSH agent, signing key, op CLI")
     sub.add_parser("validate", help="Schema-check projects.toml and referenced profiles (no VM)")
 
+    init_p = sub.add_parser("init", help="Create projects.toml in MACHINE_CONFIG_DIR (~/.config/machine)")
+    init_p.add_argument("--force", action="store_true", help="Overwrite an existing projects.toml")
+
     up = sub.add_parser("up", help="Create (if needed) + start + provision + clone the project repo(s)")
     up.add_argument("--dry-run", action="store_true",
                     help="Print provision steps without executing them")
@@ -1426,6 +1466,7 @@ COMMANDS = {
     "ps": cmd_list,  # alias
     "doctor": cmd_doctor,
     "validate": cmd_validate,
+    "init": cmd_init,
     "up": cmd_up,
     "down": cmd_down,
     "ssh": cmd_ssh,
