@@ -68,7 +68,6 @@
         <li><a href="#setup">Setup &amp; projects.toml</a></li>
         <li><a href="#quickstart">Quickstart</a></li>
         <li><a href="#commands">CLI reference</a></li>
-        <li><a href="#tmux">Tmux inside the VM</a></li>
         <li><a href="#ide">IDE integration</a></li>
         <li><a href="#provisioning">Provisioning</a></li>
         <li><a href="#profiles">Profiles</a></li>
@@ -135,7 +134,7 @@
 <span class="kw">profiles</span> = [<span class="str">"cypress"</span>, <span class="str">"supabase-fly"</span>]
 <span class="kw">repos</span> = [<span class="str">"git@github.com:you/playground.git"</span>]</code></pre>
 
-        <p>Inside the VM, each repo lands at <code>~/code/&lt;repo-basename&gt;/</code>. JavaScript deps install automatically on first clone — yarn, pnpm, or npm, picked from <code>packageManager</code> in <code>package.json</code>. For environment variables, drop a <code>.env</code> in the project and Node's <code>dotenv</code> (or your framework) reads it directly. For secrets you'd rather not put on disk, see <a href="#secrets">§11</a>.</p>
+        <p>Inside the VM, each repo lands at <code>~/code/&lt;repo-basename&gt;/</code>. JavaScript deps install automatically on first clone — yarn, pnpm, or npm, picked from <code>packageManager</code> in <code>package.json</code>. For environment variables, drop a <code>.env</code> in the project and Node's <code>dotenv</code> (or your framework) reads it directly. For secrets you'd rather not put on disk, see <a href="#secrets">§10</a>.</p>
       </section>
 
       <section id="quickstart">
@@ -165,9 +164,9 @@
               <tr><td>machine init</td><td class="desc">Write a starter <code>projects.toml</code> to <code>~/.config/machine/</code>.</td></tr>
               <tr><td>machine up &lt;p&gt;</td><td class="desc">Create if needed, start, provision (base + profiles), clone the repo(s). Idempotent. <code>--dry-run</code> prints steps without executing.</td></tr>
               <tr><td>machine down &lt;p&gt;</td><td class="desc">Stop the VM (preserves disk).</td></tr>
-              <tr><td>machine ssh &lt;p&gt;</td><td class="desc">Interactive shell, cwd = <code>~/code/&lt;primary-repo&gt;</code>. Attaches to a per-project tmux session — see <a href="#tmux">§06</a>.</td></tr>
+              <tr><td>machine ssh &lt;p&gt;</td><td class="desc">Interactive shell, cwd = <code>~/code/&lt;primary-repo&gt;</code>.</td></tr>
               <tr><td>machine run &lt;p&gt; &lt;cmd&gt;…</td><td class="desc">Non-interactive command in the VM.</td></tr>
-              <tr><td>machine secrets &lt;p&gt; [&lt;repo&gt;]</td><td class="desc">Render 1Password Environment(s) into VM tmpfs. See <a href="#secrets">§11</a>.</td></tr>
+              <tr><td>machine secrets &lt;p&gt; [&lt;repo&gt;]</td><td class="desc">Render 1Password Environment(s) into VM tmpfs. See <a href="#secrets">§10</a>.</td></tr>
               <tr><td>machine secrets --clear &lt;p&gt; [&lt;repo&gt;]</td><td class="desc">Wipe rendered secrets from the VM's tmpfs.</td></tr>
               <tr><td>machine status &lt;p&gt;</td><td class="desc"><code>limactl list</code> for that VM.</td></tr>
               <tr><td>machine update &lt;p&gt;</td><td class="desc">Refresh in-place: <code>apt upgrade</code>, npm globals, claude installer. <code>--reprovision</code> also re-applies TOML configs.</td></tr>
@@ -178,29 +177,8 @@
         </div>
       </section>
 
-      <section id="tmux">
-        <h2><span class="num">06</span>Tmux inside the VM</h2>
-        <p>
-          <code>machine ssh &lt;project&gt;</code> attaches to a per-project tmux session, created on first connect, named after the project,
-          starting at the primary repo. New "tabs" need to be created from inside the VM rather than via the host terminal's Cmd+T —
-          the host shortcut would open a tab on the <em>host</em> at the host's cwd, not in the VM.
-        </p>
-        <div class="tbl">
-          <table>
-            <thead><tr><th>keys</th><th>what</th></tr></thead>
-            <tbody>
-              <tr><td>Ctrl-b c</td><td class="desc">New window ("tab") — starts in the current pane's VM cwd.</td></tr>
-              <tr><td>Ctrl-b n / p</td><td class="desc">Next / previous window.</td></tr>
-              <tr><td>Ctrl-b " / %</td><td class="desc">Horizontal / vertical split — also inherits the pane cwd.</td></tr>
-              <tr><td>Ctrl-b d</td><td class="desc">Detach (session keeps running; reattach with <code>machine ssh &lt;project&gt;</code>).</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p>The session survives detach, so closing the host terminal and reconnecting drops you back into the same windows. For a plain non-tmux shell instead, use <code>machine run &lt;project&gt; bash -l</code> or <code>limactl shell &lt;project&gt;</code> directly.</p>
-      </section>
-
       <section id="ide">
-        <h2><span class="num">07</span>IDE integration</h2>
+        <h2><span class="num">06</span>IDE integration</h2>
         <p><code>machine up &lt;project&gt;</code> (and <code>rebuild</code>/<code>destroy</code>) maintains a sentinel-delimited block in <code>~/.ssh/config</code>, so any IDE that reads SSH config sees the VM directly:</p>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>~/.ssh/config</span></div><code><span class="kw">Host</span> machine-&lt;project&gt;
     <span class="kw">HostName</span> 127.0.0.1
@@ -216,11 +194,11 @@
       </section>
 
       <section id="provisioning">
-        <h2><span class="num">08</span>Provisioning</h2>
+        <h2><span class="num">07</span>Provisioning</h2>
         <p>The provisioning system is declarative: tools are listed in TOML, and a small Python dispatcher applies them inside the VM.</p>
         <ul>
           <li><code>provision.toml</code> — the base config, always applied. Lists apt packages, third-party apt repos (Docker, GitHub CLI, NodeSource for Node), <code>curl|bash</code> installers (Claude Code), npm globals (Codex, TypeScript), <code>/etc/profile.d</code> snippets, Claude marketplace + plugins.</li>
-          <li><code>profiles/&lt;name&gt;.toml</code> — opt-in add-ons (see <a href="#profiles">§09</a>).</li>
+          <li><code>profiles/&lt;name&gt;.toml</code> — opt-in add-ons (see <a href="#profiles">§08</a>).</li>
           <li><code>provision/run.py</code> — reads the base + selected profiles, merges, and runs them in fixed step order. Idempotent via sentinels under <code>/var/lib/dev-vm/provisioned/</code>.</li>
         </ul>
         <p>Adding a tool that fits a typed section (apt package, npm global, apt repo, <code>curl|bash</code> installer, GitHub release tarball, Claude plugin) is one line of TOML. The <code>[[shell]]</code> section is an escape hatch for genuinely shell-shaped one-offs (writing config files, <code>chsh</code>, etc.). Schema reference is in the comments at the top of <code>provision.toml</code>.</p>
@@ -237,7 +215,7 @@
       </section>
 
       <section id="profiles">
-        <h2><span class="num">09</span>Profiles</h2>
+        <h2><span class="num">08</span>Profiles</h2>
         <p>Profiles stack. Pick a base, layer extras in <code>projects.toml</code>, or write your own. Ship with <code>machine</code>:</p>
         <div class="tbl">
           <table>
@@ -255,7 +233,7 @@
       </section>
 
       <section id="ssh-agent">
-        <h2><span class="num">10</span>SSH agent</h2>
+        <h2><span class="num">09</span>SSH agent</h2>
         <p>By default the VM forwards whatever the host's <code>SSH_AUTH_SOCK</code> points at — on macOS that's launchd's agent, which serves keys you loaded with <code>ssh-add --apple-use-keychain</code> (passphrase cached in Keychain).</p>
         <p>To use 1Password's agent instead — keys never touch <code>~/.ssh</code>, every signature prompts for Touch ID:</p>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>brew install 1password-cli                    <span class="cmt"># only needed for OP_SIGNING_KEY_REF</span>
@@ -273,7 +251,7 @@
       </section>
 
       <section id="secrets">
-        <h2><span class="num">11</span>1Password secrets</h2>
+        <h2><span class="num">10</span>1Password secrets</h2>
         <p>For project secrets you don't want to write to disk, drop a <code>.envrc</code> in the repo referencing a 1Password <a href="https://developer.1password.com/docs/cli/environments/">Environment</a> ID:</p>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span><span class="kw">echo</span> <span class="str">'use op_env &lt;environment-id&gt;'</span> &gt; .envrc
 <span class="prompt">$ </span>direnv allow</code></pre>
@@ -289,7 +267,7 @@
       </section>
 
       <section id="threat-model">
-        <h2><span class="num">12</span>Threat model</h2>
+        <h2><span class="num">11</span>Threat model</h2>
         <p>No host filesystem is mounted. Each project gets its own VM, so a compromise of one project can't reach another's code or env. The host exposes two narrow channels:</p>
         <ul>
           <li>The forwarded <strong>SSH agent</strong> — auth and signing only; private keys stay on the host; the VM can only request signatures while it's running.</li>
@@ -305,7 +283,7 @@
       </section>
 
       <section id="completion">
-        <h2><span class="num">13</span>Shell completion</h2>
+        <h2><span class="num">12</span>Shell completion</h2>
         <p>Bash, zsh, and fish completions ship under <code>completions/</code>:</p>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="cmt"># bash</span>
 <span class="prompt">$ </span><span class="kw">echo</span> <span class="str">'source /path/to/machine/completions/machine.bash'</span> &gt;&gt; ~/.bashrc
@@ -318,7 +296,7 @@
       </section>
 
       <section id="knobs">
-        <h2><span class="num">14</span>Override knobs</h2>
+        <h2><span class="num">13</span>Override knobs</h2>
         <p>Every override is an environment variable read at <code>up</code> time. Set them in your shell rc, your direnv, or inline.</p>
         <div class="tbl">
           <table>
@@ -338,7 +316,7 @@
       </section>
 
       <section id="verifying">
-        <h2><span class="num">15</span>Verifying</h2>
+        <h2><span class="num">14</span>Verifying</h2>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>bash tests/run-all.sh &lt;project&gt;     <span class="cmt"># full VM smokes (lint + boot + docker + node + git-sign + …)</span>
 <span class="prompt">$ </span>bash tests/unit.sh                  <span class="cmt"># host-side Python unit tests (no VM)</span>
 <span class="prompt">$ </span>machine validate                    <span class="cmt"># schema-check the TOMLs</span>
