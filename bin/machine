@@ -1101,6 +1101,19 @@ def cmd_up(args: argparse.Namespace) -> int:
             if rc != 0:
                 return rc
 
+        if os.environ.get("MACHINE_NO_CLAUDE_LOGIN") != "1":
+            try:
+                creds = read_host_claude_credentials()
+            except SystemExit:
+                creds = None
+            if creds:
+                s = r.step_start("push claude credential")
+                try:
+                    push_claude_credentials(name, creds)
+                    r.step_end(s, "ok")
+                except subprocess.CalledProcessError as e:
+                    r.step_end(s, "fail", str(e.returncode))
+
     if rc == 0:
         print(f"✓ {name} ready — run 'machine ssh {name}' to log in.")
         refresh_ssh_config()
@@ -1410,6 +1423,91 @@ def cmd_secrets_clear(args: argparse.Namespace) -> int:
         'fi\n'
     )
     run(["limactl", "shell", name, "--", "bash", "-c", body, "bash", env_id])
+    return 0
+
+
+# --- Claude credential push ------------------------------------------------
+# Claude Code stores its OAuth credential in the macOS Keychain under
+# "Claude Code-credentials" on Darwin, or in ~/.claude/.credentials.json on
+# Linux. We read the host copy and write it to ~/.claude/.credentials.json
+# inside the VM (mode 0600), so the user authenticates once on the host
+# rather than once per VM.
+CLAUDE_KEYCHAIN_SERVICE = "Claude Code-credentials"
+
+
+def read_host_claude_credentials() -> str | None:
+    """Return the host's Claude credential JSON, or None if no auth is present.
+    Raises SystemExit on unexpected lookup errors."""
+    if sys.platform == "darwin":
+        res = subprocess.run(
+            ["security", "find-generic-password", "-s", CLAUDE_KEYCHAIN_SERVICE, "-w"],
+            capture_output=True, text=True,
+        )
+        if res.returncode == 44 or "could not be found" in (res.stderr or ""):
+            return None
+        if res.returncode != 0:
+            die(f"reading Claude credential from Keychain failed: {res.stderr.strip()}")
+        creds = res.stdout.strip()
+        return creds or None
+    path = Path.home() / ".claude" / ".credentials.json"
+    if not path.is_file():
+        return None
+    return path.read_text().strip() or None
+
+
+def push_claude_credentials(vm: str, creds: str) -> None:
+    """Write the credential JSON to ~/.claude/.credentials.json in the VM
+    (mode 0600, owned by the lima user). Runs as the lima user so $HOME
+    resolves correctly."""
+    body = (
+        'set -e\n'
+        'umask 077\n'
+        'mkdir -p "$HOME/.claude"\n'
+        'tmp=$(mktemp "$HOME/.claude/.credentials.json.XXXXXX")\n'
+        'cat > "$tmp"\n'
+        'chmod 600 "$tmp"\n'
+        'mv "$tmp" "$HOME/.claude/.credentials.json"\n'
+    )
+    subprocess.run(
+        ["limactl", "shell", vm, "--", "bash", "-lc", body],
+        input=creds, text=True, check=True,
+    )
+
+
+def cmd_claude_login(args: argparse.Namespace) -> int:
+    name = args.project
+    validate_name(name)
+    if not vm_exists(name):
+        die(f"VM '{name}' does not exist — run 'machine up {name}' first")
+    creds = read_host_claude_credentials()
+    if not creds:
+        hint = (
+            "run `claude` once on the host to sign in"
+            if sys.platform == "darwin"
+            else f"no credential at {Path.home() / '.claude' / '.credentials.json'}"
+        )
+        die(f"no Claude credential found on host — {hint}")
+    push_claude_credentials(name, creds)
+    print(f"✓ pushed Claude credential to VM '{name}'")
+    return 0
+
+
+def cmd_claude_logout(args: argparse.Namespace) -> int:
+    name = args.project
+    validate_name(name)
+    if not vm_exists(name):
+        die(f"VM '{name}' does not exist")
+    body = (
+        'f="$HOME/.claude/.credentials.json"\n'
+        'if [ -f "$f" ]; then\n'
+        '  head -c "$(wc -c <"$f")" /dev/zero > "$f" 2>/dev/null || true\n'
+        '  rm -f "$f"\n'
+        '  echo "[claude] removed $f"\n'
+        'else\n'
+        '  echo "[claude] no credential to remove"\n'
+        'fi\n'
+    )
+    run(["limactl", "shell", name, "--", "bash", "-lc", body])
     return 0
 
 
@@ -2003,6 +2101,15 @@ def build_parser() -> argparse.ArgumentParser:
     sec.add_argument("project")
     sec.add_argument("repo", nargs="?", default=None)
 
+    sub.add_parser(
+        "claude-login",
+        help="Push the host's Claude OAuth credential into the VM",
+    ).add_argument("project")
+    sub.add_parser(
+        "claude-logout",
+        help="Remove the Claude OAuth credential from the VM",
+    ).add_argument("project")
+
     destroy = sub.add_parser("destroy", help="Delete the VM (irreversible)")
     destroy.add_argument("-y", "--yes", "--force", dest="force", action="store_true",
                          help="Skip confirmation")
@@ -2041,6 +2148,8 @@ COMMANDS = {
     "rebuild": cmd_rebuild,
     "run": cmd_run,
     "secrets": cmd_secrets,
+    "claude-login": cmd_claude_login,
+    "claude-logout": cmd_claude_logout,
     "update": cmd_update,
     "bake": cmd_bake,
 }

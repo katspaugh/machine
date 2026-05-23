@@ -132,6 +132,8 @@ In VS Code → Remote-SSH: open the host picker, pick `machine-<project>`, then 
 | `machine run <p> <cmd>...` | Non-interactive command in the VM |
 | `machine secrets <p> [<repo>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)) |
 | `machine secrets --clear <p> [<repo>]` | Wipe rendered secrets from VM tmpfs |
+| `machine claude-login <p>` | Copy the host's Claude OAuth credential into the VM so you don't need to re-auth inside it. Also runs automatically at the end of `machine up` when the host has a credential (opt out with `MACHINE_NO_CLAUDE_LOGIN=1`). See [Claude credential push](#claude-credential-push). |
+| `machine claude-logout <p>` | Shred + remove `~/.claude/.credentials.json` inside the VM |
 | `machine status <p>` | `limactl list` for the VM |
 | `machine update <p>` | Refresh in-place: `apt upgrade`, npm globals, claude installer. `--reprovision` also re-applies TOML configs. |
 | `machine rebuild <p>` | **Destroys** the VM and rebuilds from scratch (reproducibility test). `-y` skips confirmation. |
@@ -276,9 +278,20 @@ machine secrets <project> <repo>        # narrow to one repo within a multi-repo
 
 Create an Environment in 1Password desktop: Developer → Environments → New. Copy its ID via Manage environment → Copy ID.
 
+## Claude credential push
+
+Claude Code's OAuth credential normally has to be re-issued in every fresh VM. To avoid that, `machine` reads the host's existing credential and pushes it once into the VM:
+
+- macOS host: reads the Keychain entry `Claude Code-credentials`.
+- Linux host: reads `~/.claude/.credentials.json`.
+
+Inside the VM it lands at `~/.claude/.credentials.json` (mode 0600, owned by the VM user). It's pushed automatically at the end of `machine up` whenever a host credential exists; opt out with `MACHINE_NO_CLAUDE_LOGIN=1`. Use `machine claude-login <p>` to push on demand, and `machine claude-logout <p>` to shred + remove the file.
+
+Tradeoff vs. the per-VM auth flow: a fully compromised VM can read the pushed OAuth token (it's a regular file inside the VM) and use it against api.anthropic.com until the token expires or you rotate. The host's Keychain entry itself is never exposed to the VM — only the token bytes the VM would have ended up with anyway, just without the interactive login.
+
 ## Threat model
 
-No host filesystem is mounted. Each project gets its own VM, so a compromise of one project can't reach another's code or env. The host exposes two narrow channels: the forwarded SSH agent (auth + signing — private keys stay on the host, the VM can only request signatures while it's running), and `machine secrets` pushing rendered 1Password Environments into tmpfs (no disk persistence). A fully compromised VM cannot read the 1Password vault — only the secrets a repo explicitly rendered, and only while that tmpfs lives.
+No host filesystem is mounted. Each project gets its own VM, so a compromise of one project can't reach another's code or env. The host exposes three narrow channels: the forwarded SSH agent (auth + signing — private keys stay on the host, the VM can only request signatures while it's running), `machine secrets` pushing rendered 1Password Environments into tmpfs (no disk persistence), and `machine claude-login` pushing the Claude OAuth credential to the VM's disk (see [Claude credential push](#claude-credential-push) for the tradeoff). A fully compromised VM cannot read the 1Password vault or the host Keychain — only the secrets/tokens a repo explicitly rendered.
 
 ## Override knobs
 
@@ -294,3 +307,4 @@ No host filesystem is mounted. Each project gets its own VM, so a compromise of 
 | `MACHINE_VERBOSE` | set `=1` to stream raw provisioner output inline (equivalent to `--verbose`) |
 | `MACHINE_PLAIN` | set `=1` to disable the spinner and use plain text output (equivalent to `--plain`) |
 | `MACHINE_PROVISION_LOG` | override the default provisioning log path (`<state-dir>/logs/<vm>-<iso>.log`) |
+| `MACHINE_NO_CLAUDE_LOGIN` | set `=1` to skip the auto Claude credential push at the end of `machine up` |

@@ -9,7 +9,7 @@ _machine_complete() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-  local commands="list ps doctor validate up down ssh status destroy rebuild run secrets update"
+  local commands="list ps doctor validate up down ssh status destroy rebuild run secrets claude-login claude-logout update"
 
   if [ "$COMP_CWORD" -eq 1 ]; then
     COMPREPLY=($(compgen -W "$commands" -- "$cur"))
@@ -18,7 +18,7 @@ _machine_complete() {
 
   local cmd="${COMP_WORDS[1]}"
   case "$cmd" in
-    up|down|ssh|status|destroy|rebuild|run|secrets|update)
+    up|down|ssh|status|destroy|rebuild|run|secrets|claude-login|claude-logout|update)
       # Project name: pull from projects.toml.
       local projects_file="${PROJECTS_FILE:-$PWD/projects.toml}"
       if [ -f "$projects_file" ]; then

@@ -18,6 +18,8 @@ _machine() {
     'rebuild:Destroy + up'
     'run:Run a non-interactive command in the VM'
     'secrets:Render 1Password Environment(s) into tmpfs'
+    'claude-login:Push host Claude OAuth credential into the VM'
+    'claude-logout:Remove the Claude OAuth credential from the VM'
     'update:Refresh in-place'
   )
 
@@ -32,7 +34,7 @@ _machine() {
     args)
       local projects_file=${PROJECTS_FILE:-$PWD/projects.toml}
       case $words[1] in
-        up|down|ssh|status|destroy|rebuild|run|secrets|update)
+        up|down|ssh|status|destroy|rebuild|run|secrets|claude-login|claude-logout|update)
           if [[ -f $projects_file ]]; then
             local -a names
             names=( ${(f)"$(python3 -c "import tomllib,sys
