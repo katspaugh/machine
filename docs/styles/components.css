@@ -663,7 +663,7 @@ section + section { padding-top: 0; }
   border-style: dashed;
 }
 
-/* ---------- Live demo ---------- */
+/* ---------- Demo ---------- */
 .demo-wrap {
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
@@ -682,25 +682,11 @@ section + section { padding-top: 0; }
   color: var(--dim);
 }
 .demo-head .left { display: flex; align-items: center; gap: 12px; }
-.demo-head .right { display: flex; align-items: center; gap: 12px; color: var(--dim); }
-.demo-body {
-  padding: 20px 20px 28px;
-  min-height: 360px;
-  font-family: var(--font-mono);
-  font-size: var(--t-mono);
-  line-height: 1.55;
-  white-space: pre-wrap;
+.demo-gif {
+  display: block;
+  width: 100%;
+  height: auto;
 }
-.demo-restart {
-  font-family: var(--font-mono);
-  font-size: var(--t-mono-s);
-  color: var(--cyan);
-  background: rgba(227,122,180,.07);
-  border: 1px solid rgba(227,122,180,.22);
-  border-radius: 4px;
-  padding: 3px 8px;
-}
-.demo-restart:hover { background: rgba(227,122,180,.14); }
 
 /* ---------- Tend / commands grid ---------- */
 .cmd-grid {

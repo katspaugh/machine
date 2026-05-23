@@ -11,7 +11,10 @@
   <meta property="og:type" content="website" />
   <meta property="og:title" content="machine — one isolated VM per project" />
   <meta property="og:description" content="Reproducible, sandboxed Lima VMs for the Claude Code / Codex era. No host filesystem mount. No cross-project bleed." />
+  <meta property="og:image" content="https://runmachine.dev/assets/banner.svg" />
+  <meta property="og:image:alt" content="machine — one isolated Lima VM per project" />
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://runmachine.dev/assets/banner.svg" />
 
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
@@ -235,7 +238,7 @@
       <article class="why-card">
         <div class="why-num">03</div>
         <h3>Agent-ready, on day one.</h3>
-        <p>Claude Code, Codex, Aider, and friends ship in the base image. Point them at the SSH host and let them rip.</p>
+        <p>Claude Code and Codex ship in the base image, with the official Claude marketplace and a curated plugin set wired up. Point your editor at the SSH host and let them rip.</p>
         <code>machine ssh blog</code>
       </article>
     </div>
@@ -357,13 +360,13 @@
   </div>
 </section>
 
-<!-- ============ LIVE DEMO ============ -->
+<!-- ============ DEMO ============ -->
 <section id="demo">
   <div class="container reveal">
-    <p class="section-eyebrow">// section 05 — live</p>
-    <h2 class="section-title">From nothing to a shell, in 38 seconds.</h2>
+    <p class="section-eyebrow">// section 05 — demo</p>
+    <h2 class="section-title">What it looks like.</h2>
     <p class="section-intro">
-      Recorded once, played back forever. The first <code>up</code> is the slow one — every subsequent boot is cached.
+      A VHS replay of the CLI surface — <code>list</code>, <code>up</code>, <code>ssh</code>. The first <code>up</code> is the slow one; subsequent boots are warm restarts.
     </p>
 
     <div class="demo-wrap">
@@ -372,12 +375,8 @@
           <div class="term-dots"><span></span><span></span><span></span></div>
           <span>~/code/blog</span>
         </div>
-        <div class="right">
-          <span id="demo-clock">00:00 / 00:38</span>
-          <button class="demo-restart" id="demo-restart">⟲ restart</button>
-        </div>
       </div>
-      <div class="demo-body" id="demo-body"></div>
+      <img class="demo-gif" src="assets/machine.gif" alt="Replay of machine list, machine up blog, and machine ssh blog." loading="lazy" width="1100" height="720" />
     </div>
   </div>
 </section>
@@ -422,11 +421,11 @@
       </div>
       <div class="cmd-card">
         <div class="k">machine secrets <span class="sub">&lt;p&gt;</span></div>
-        <div class="v">Show which 1Password items resolve into <code>/run/secrets</code> for this project.</div>
+        <div class="v">Render 1Password Environments into <code>$XDG_RUNTIME_DIR/dev-secrets</code> (tmpfs) for this project.</div>
       </div>
       <div class="cmd-card">
         <div class="k">machine init</div>
-        <div class="v">First run only. Writes a starter <code>projects.toml</code> to <code>~/.config/machine/</code>.</div>
+        <div class="v">First run only. Writes a starter <code>projects.toml</code> to <code>~/.config/machine/</code> (or to the repo root in dev mode).</div>
       </div>
     </div>
   </div>
@@ -472,7 +471,7 @@
             </div>
           </div>
         </div>
-        <p class="ide-caption"><code>machine up</code> writes the host into <code>~/.ssh/config.d/machine</code>. Cursor and JetBrains Gateway pick it up too.</p>
+        <p class="ide-caption"><code>machine up</code> maintains a sentinel-delimited block in <code>~/.ssh/config</code>. Cursor and JetBrains Gateway pick it up too.</p>
       </div>
     </div>
   </div>
