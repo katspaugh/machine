@@ -165,9 +165,10 @@ class TestParseVmInfo(unittest.TestCase):
             "main\n"
         )
         result = m._parse_vm_info(output)
-        self.assertEqual(result["cpu_percent"], 42)
+        self.assertAlmostEqual(result["load1"], 0.42)
         self.assertEqual(result["mem_total_bytes"], 4294967296)
-        self.assertEqual(result["mem_used_bytes"], 1288490189)
+        # mem_used = total - available = 4294967296 - 2684354560 = 1610612736
+        self.assertEqual(result["mem_used_bytes"], 4294967296 - 2684354560)
         self.assertEqual(result["branch"], "main")
 
     def test_parse_vm_info_handles_partial_output_no_who_no_branch(self):
@@ -180,28 +181,28 @@ class TestParseVmInfo(unittest.TestCase):
             "---\n"
         )
         result = m._parse_vm_info(output)
-        self.assertEqual(result["cpu_percent"], 14)
+        self.assertAlmostEqual(result["load1"], 0.14)
         self.assertEqual(result["mem_total_bytes"], 8589934592)
         self.assertIsNone(result["branch"])
 
     def test_parse_vm_info_empty(self):
         """Empty output returns all-None result without exception."""
         result = m._parse_vm_info("")
-        self.assertIsNone(result["cpu_percent"])
+        self.assertIsNone(result["load1"])
         self.assertIsNone(result["mem_used_bytes"])
         self.assertIsNone(result["branch"])
 
     def test_parse_vm_info_malformed_loadavg(self):
-        """Malformed loadavg section leaves cpu_percent as None."""
+        """Malformed loadavg section leaves load1 as None."""
         output = "bad data\n---\nMem:      1024 512 512\n---\n---\n"
         result = m._parse_vm_info(output)
-        self.assertIsNone(result["cpu_percent"])
+        self.assertIsNone(result["load1"])
 
-    def test_parse_vm_info_clamps_cpu(self):
-        """CPU load > 9.99 is clamped to 999."""
+    def test_parse_vm_info_high_load(self):
+        """Very high load1 value is stored as-is (normalization happens in _make_ps_row)."""
         output = "15.00 10.00 8.00 5/500 1000\n---\n---\n---\n"
         result = m._parse_vm_info(output)
-        self.assertEqual(result["cpu_percent"], 999)
+        self.assertAlmostEqual(result["load1"], 15.0)
 
 
 # ---------------------------------------------------------------------------
@@ -387,12 +388,12 @@ class TestBuildPsRows(unittest.TestCase):
     def test_build_ps_rows_running_vm_with_data(self):
         """Running VM with all data filled in."""
         cfg = {"blog": {"repos": ["git@github.com:org/blog.git"]}}
-        lima_vms = {"blog": {"name": "blog", "status": "Running"}}
+        lima_vms = {"blog": {"name": "blog", "status": "Running", "cpus": 4}}
         info = {
-            "cpu_percent": 14,
+            "load1": 0.56,  # 0.56 / 4 cpus = 14%
             "mem_used_bytes": int(1.8 * 1_073_741_824),
             "mem_total_bytes": int(4 * 1_073_741_824),
-            "idle_minutes": None,
+            "idle_seconds": None,
             "branch": "main",
         }
 

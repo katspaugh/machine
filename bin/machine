@@ -537,18 +537,48 @@ def _gather_lima_list_json() -> dict[str, dict]:
     return out
 
 
+def _parse_who_idle(who_output: str, now: datetime.datetime | None = None) -> float | None:
+    """Return seconds since the most recent login, or None if no parseable lines.
+
+    'who' output format (Ubuntu default):
+        ivan     pts/0        2026-05-23 14:30 (10.0.2.2)
+    Columns [2] and [3] are YYYY-MM-DD and HH:MM.
+
+    Note: 'who' reports VM local time. This works as long as host and VM share
+    the same timezone (Lima VMs default to host TZ). If they diverge, idle time
+    could be off by the TZ difference — acceptable trade-off.
+    """
+    if not who_output.strip():
+        return None
+    now = now or datetime.datetime.now()
+    latest: datetime.datetime | None = None
+    for line in who_output.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        try:
+            dt = datetime.datetime.strptime(f"{parts[2]} {parts[3]}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            continue
+        if latest is None or dt > latest:
+            latest = dt
+    if latest is None:
+        return None
+    return max(0.0, (now - latest).total_seconds())
+
+
 def _parse_vm_info(output: str) -> dict:
     """Parse the multi-section output from _gather_running_vm_info's shell script.
 
     Sections are separated by '---'. Returns a dict with keys:
-        cpu_percent (float|None), mem_used_bytes (int|None),
+        load1 (float|None), mem_used_bytes (int|None),
         mem_total_bytes (int|None), idle_minutes (int|None), branch (str|None).
     """
     result: dict[str, Any] = {
-        "cpu_percent": None,
+        "load1": None,
         "mem_used_bytes": None,
         "mem_total_bytes": None,
-        "idle_minutes": None,
+        "idle_seconds": None,
         "branch": None,
     }
     sections = output.split("---")
@@ -559,31 +589,26 @@ def _parse_vm_info(output: str) -> dict:
             parts = la.split()
             if parts:
                 try:
-                    load1 = float(parts[0])
-                    result["cpu_percent"] = min(round(load1 * 100), 999)
+                    result["load1"] = float(parts[0])
                 except (ValueError, IndexError):
                     pass
-    # Section 1: free -b output
+    # Section 1: free -b output — columns: total used free shared buff/cache available
+    # We compute used = total - available (parts[1] - parts[6]), which excludes
+    # buffers/cache and represents truly unavailable memory.
     if len(sections) > 1:
         for line in sections[1].splitlines():
             if line.startswith("Mem:"):
                 parts = line.split()
                 try:
                     result["mem_total_bytes"] = int(parts[1])
-                    result["mem_used_bytes"] = int(parts[2])
+                    result["mem_used_bytes"] = int(parts[1]) - int(parts[6])
                 except (ValueError, IndexError):
                     pass
                 break
-    # Section 2: who output — parse idle time from last activity
+    # Section 2: who output — parse idle time as now - most_recent_login
     if len(sections) > 2:
         who_out = sections[2].strip()
-        if who_out:
-            # 'who' output: "ivan     pts/0        2024-01-01 10:00 (:0)"
-            # We use the mtime of the most recently touched pty as a proxy.
-            # For idle time: parse the oldest session time or leave None.
-            # Simpler: count lines as sessions present; idle = None from who alone.
-            # We'll leave idle_minutes as None here; it requires wall clock comparison.
-            pass
+        result["idle_seconds"] = _parse_who_idle(who_out)
     # Section 3: git branch (optional)
     if len(sections) > 3:
         branch = sections[3].strip().splitlines()
@@ -614,8 +639,8 @@ def _gather_running_vm_info(vm: str, primary_repo: str | None) -> dict:
         )
         return _parse_vm_info(proc.stdout)
     except Exception:
-        return {"cpu_percent": None, "mem_used_bytes": None,
-                "mem_total_bytes": None, "idle_minutes": None, "branch": None}
+        return {"load1": None, "mem_used_bytes": None,
+                "mem_total_bytes": None, "idle_seconds": None, "branch": None}
 
 
 def _probe_port(host_port: int, timeout: float = 0.1) -> bool:
@@ -762,14 +787,26 @@ def _make_ps_row(
     else:
         uptime = EM
 
-    # CPU
-    if is_running and info.get("cpu_percent") is not None:
-        cpu = f"{info['cpu_percent']}%"
+    timed_out = info.get("_timed_out", False)
+    QMARK = "?"
+
+    # CPU — load1 / vm_cpu_count * 100; ">100%" when overloaded
+    if is_running and timed_out:
+        cpu = QMARK
+    elif is_running and info.get("load1") is not None:
+        cpus = lima_obj.get("cpus") or 1
+        cpu_pct = (info["load1"] / cpus) * 100
+        if cpu_pct > 100:
+            cpu = ">100%"
+        else:
+            cpu = f"{int(cpu_pct)}%"
     else:
         cpu = EM
 
     # Memory  "used / total G"
-    if is_running and info.get("mem_used_bytes") is not None and info.get("mem_total_bytes") is not None:
+    if is_running and timed_out:
+        mem = QMARK
+    elif is_running and info.get("mem_used_bytes") is not None and info.get("mem_total_bytes") is not None:
         used_gb = info["mem_used_bytes"] / 1_073_741_824
         total_gb = info["mem_total_bytes"] / 1_073_741_824
         mem = f"{used_gb:.1f} / {total_gb:.0f} G"
@@ -779,14 +816,21 @@ def _make_ps_row(
     # Repo (basename + optional branch)
     primary = _primary_repo_basename(project)
     if primary:
-        branch = info.get("branch") if is_running else None
-        repo = f"{primary} ({branch})" if branch else primary
+        if is_running and timed_out:
+            repo = f"{primary} ({QMARK})"
+        else:
+            branch = info.get("branch") if is_running else None
+            repo = f"{primary} ({branch})" if branch else primary
     else:
         repo = EM
 
-    # Idle: not derivable from /proc/loadavg alone; leave as — for now
-    # (would require pty mtime comparison inside the VM)
-    idle = EM
+    # Idle — seconds since most recent login from 'who' output
+    if is_running and timed_out:
+        idle = QMARK
+    elif is_running and info.get("idle_seconds") is not None:
+        idle = _format_duration_compact(info["idle_seconds"])
+    else:
+        idle = EM
 
     # Ports
     if is_running and active_ports:
@@ -825,7 +869,9 @@ def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict], default_profile: str | 
             port_tasks = {n: pool.submit(_gather_active_ports, n) for n in running}
             for n, fut in info_tasks.items():
                 try:
-                    info_futures[n] = fut.result(timeout=4.0)
+                    info_futures[n] = fut.result(timeout=3.0)
+                except concurrent.futures.TimeoutError:
+                    info_futures[n] = {"_timed_out": True}
                 except Exception:
                     info_futures[n] = {}
             for n, fut in port_tasks.items():
