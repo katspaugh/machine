@@ -1164,29 +1164,46 @@ def cmd_down(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_ssh(args: argparse.Namespace) -> int:
-    name = args.project
-    # Open at ~/code/<primary-repo> if it exists.
-    workdir = None
+def _primary_repo_workdir(name: str) -> str | None:
+    """Resolve cwd at ~/code/<primary-repo> inside the VM, or None."""
     try:
         urls = project_urls(name)
     except SystemExit:
         urls = []
-    if urls:
-        repo_name = repo_basename(urls[0])
-        rc = lima_shell(
-            name,
-            ["bash", "-lc", f'[ -d "$HOME/code/{shlex.quote(repo_name)}" ]'],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        ).returncode
-        if rc == 0:
-            user = os.environ["USER"]
-            workdir = f"/home/{user}.linux/code/{repo_name}"
+    if not urls:
+        return None
+    repo_name = repo_basename(urls[0])
+    rc = lima_shell(
+        name,
+        ["bash", "-lc", f'[ -d "$HOME/code/{shlex.quote(repo_name)}" ]'],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode
+    if rc != 0:
+        return None
+    user = os.environ["USER"]
+    return f"/home/{user}.linux/code/{repo_name}"
+
+
+def cmd_ssh(args: argparse.Namespace) -> int:
+    name = args.project
+    workdir = _primary_repo_workdir(name)
     cmd = ["limactl", "shell"]
     if workdir:
         cmd += ["--workdir", workdir]
     cmd += [name]
+    os.execvp("limactl", cmd)
+
+
+def cmd_claude(args: argparse.Namespace) -> int:
+    name = args.project
+    workdir = _primary_repo_workdir(name)
+    cmd = ["limactl", "shell"]
+    if workdir:
+        cmd += ["--workdir", workdir]
+    # Login+interactive bash so /etc/profile.d/* sets PATH the same way
+    # `machine ssh` users see, then hand the tty to claude.
+    cmd += [name, "bash", "-lic", "exec claude"]
     os.execvp("limactl", cmd)
 
 
@@ -1991,6 +2008,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("down", help="Stop the VM").add_argument("project")
     sub.add_parser("ssh", help="Open an interactive shell (cwd = ~/code/<primary-repo>)").add_argument("project")
+    sub.add_parser("claude", help="Open an SSH session and launch `claude` (cwd = ~/code/<primary-repo>)").add_argument("project")
     sub.add_parser("status", help="Print VM status").add_argument("project")
 
     run_p = sub.add_parser("run", help="Run a non-interactive command in the VM")
@@ -2036,6 +2054,7 @@ COMMANDS = {
     "up": cmd_up,
     "down": cmd_down,
     "ssh": cmd_ssh,
+    "claude": cmd_claude,
     "status": cmd_status,
     "destroy": cmd_destroy,
     "rebuild": cmd_rebuild,

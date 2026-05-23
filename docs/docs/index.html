@@ -165,6 +165,7 @@
               <tr><td>machine up &lt;p&gt;</td><td class="desc">Create if needed, start, provision (base + profiles), clone the repo(s). Idempotent. <code>--dry-run</code> prints steps without executing.</td></tr>
               <tr><td>machine down &lt;p&gt;</td><td class="desc">Stop the VM (preserves disk).</td></tr>
               <tr><td>machine ssh &lt;p&gt;</td><td class="desc">Interactive shell, cwd = <code>~/code/&lt;primary-repo&gt;</code>.</td></tr>
+              <tr><td>machine claude &lt;p&gt;</td><td class="desc">Open an SSH session and launch <code>claude</code> straight away, cwd = <code>~/code/&lt;primary-repo&gt;</code>.</td></tr>
               <tr><td>machine run &lt;p&gt; &lt;cmd&gt;…</td><td class="desc">Non-interactive command in the VM.</td></tr>
               <tr><td>machine secrets &lt;p&gt; [&lt;repo&gt;]</td><td class="desc">Render 1Password Environment(s) into VM tmpfs. See <a href="#secrets">§10</a>.</td></tr>
               <tr><td>machine secrets --clear &lt;p&gt; [&lt;repo&gt;]</td><td class="desc">Wipe rendered secrets from the VM's tmpfs.</td></tr>

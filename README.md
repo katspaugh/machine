@@ -129,6 +129,7 @@ In VS Code → Remote-SSH: open the host picker, pick `machine-<project>`, then 
 | `machine up <p>` | Create if needed, start, provision, clone the repo(s). Idempotent. `--dry-run` prints provision steps without executing. `--verbose` streams raw provisioner output; `--plain` disables the spinner (useful in CI). |
 | `machine down <p>` | Stop the VM |
 | `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). Attaches to a per‑project tmux session so `Ctrl‑b c` opens new windows that stay in the VM at the current pane's cwd. |
+| `machine claude <p>` | Open an SSH session and launch `claude` straight away (cwd = `~/code/<primary-repo>`). Exiting `claude` ends the session. |
 | `machine run <p> <cmd>...` | Non-interactive command in the VM |
 | `machine secrets <p> [<repo>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)) |
 | `machine secrets --clear <p> [<repo>]` | Wipe rendered secrets from VM tmpfs |

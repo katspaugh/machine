@@ -13,6 +13,7 @@ _machine() {
     'up:Create + start + provision + clone'
     'down:Stop the VM'
     'ssh:Open an interactive shell'
+    'claude:Open SSH and launch claude'
     'status:Print VM status'
     'destroy:Delete the VM'
     'rebuild:Destroy + up'
@@ -32,7 +33,7 @@ _machine() {
     args)
       local projects_file=${PROJECTS_FILE:-$PWD/projects.toml}
       case $words[1] in
-        up|down|ssh|status|destroy|rebuild|run|secrets|update)
+        up|down|ssh|claude|status|destroy|rebuild|run|secrets|update)
           if [[ -f $projects_file ]]; then
             local -a names
             names=( ${(f)"$(python3 -c "import tomllib,sys
