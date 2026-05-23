@@ -617,8 +617,8 @@ def _parse_vm_info(output: str) -> dict:
     return result
 
 
-def _gather_running_vm_info(vm: str, primary_repo: str | None) -> dict:
-    """One shell call into the VM. Returns parsed dict from _parse_vm_info."""
+def _make_vm_info_script(primary_repo: str | None) -> str:
+    """Build the shell script passed to `limactl shell` to gather VM metrics."""
     script = (
         "cat /proc/loadavg\n"
         "echo ---\n"
@@ -629,9 +629,15 @@ def _gather_running_vm_info(vm: str, primary_repo: str | None) -> dict:
     )
     if primary_repo:
         script += (
-            f'cd "$HOME/code/{shlex.quote(primary_repo)}" 2>/dev/null'
-            f' && git rev-parse --abbrev-ref HEAD 2>/dev/null || true\n'
+            f"cd $HOME/code/{shlex.quote(primary_repo)} 2>/dev/null"
+            f" && git rev-parse --abbrev-ref HEAD 2>/dev/null || true\n"
         )
+    return script
+
+
+def _gather_running_vm_info(vm: str, primary_repo: str | None) -> dict:
+    """One shell call into the VM. Returns parsed dict from _parse_vm_info."""
+    script = _make_vm_info_script(primary_repo)
     try:
         proc = subprocess.run(
             ["limactl", "shell", vm, "--", "sh", "-c", script],
@@ -675,7 +681,7 @@ def _gather_active_ports(vm: str) -> list[int]:
 
     # Match "Forwarding TCP from <host_addr>:<port> to ..."
     # Host address is IPv4 like 0.0.0.0 / 127.0.0.1, or IPv6 bracket like [::]
-    fwd_re = re.compile(r"Forwarding TCP from (?:\[.*?\]|[\d.]+):(\d+) to ")
+    fwd_re = re.compile(r"Forwarding TCP from (?:\[.*?\]|[\d.]+):(\d+) to ", re.IGNORECASE)
     candidate_ports: set[int] = set()
     for raw_line in lines:
         raw_line = raw_line.strip()
@@ -773,11 +779,11 @@ def _make_ps_row(
     EM = "—"
 
     # Status
-    raw_status = lima_obj.get("status") or ""
     if not lima_obj:
-        status = EM
+        raw_status = EM
     else:
-        status = raw_status or EM
+        raw_status = lima_obj.get("status") or EM
+    status = raw_status
 
     is_running = raw_status == "Running"
 
@@ -850,7 +856,7 @@ def _make_ps_row(
     )
 
 
-def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict], default_profile: str | None) -> list[PsRow]:
+def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict]) -> list[PsRow]:
     """Build rows for all projects (union of projects.toml and Lima VMs)."""
     project_names = [k for k, v in cfg.items() if isinstance(v, dict) and k != "default_profile"]
     all_names = list(dict.fromkeys([*project_names, *lima_vms.keys()]))
@@ -869,7 +875,7 @@ def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict], default_profile: str | 
             port_tasks = {n: pool.submit(_gather_active_ports, n) for n in running}
             for n, fut in info_tasks.items():
                 try:
-                    info_futures[n] = fut.result(timeout=3.0)
+                    info_futures[n] = fut.result(timeout=5.0)
                 except concurrent.futures.TimeoutError:
                     info_futures[n] = {"_timed_out": True}
                 except Exception:
@@ -908,10 +914,9 @@ def cmd_ps(args: argparse.Namespace) -> int:
         print(f"no {PROJECTS_FILE} — copy projects.toml.example and edit")
         return 0
     cfg = tomllib.loads(PROJECTS_FILE.read_text())
-    default_profile = cfg.get("default_profile")
 
     lima_vms = _gather_lima_list_json()
-    rows = _build_ps_rows(cfg, lima_vms, default_profile)
+    rows = _build_ps_rows(cfg, lima_vms)
     _print_ps_table(rows)
     return 0
 

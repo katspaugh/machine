@@ -308,6 +308,39 @@ class TestGatherActivePorts(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# _make_vm_info_script  (F2 regression: shlex.quote must not be double-quoted)
+# ---------------------------------------------------------------------------
+
+class TestMakeVmInfoScript(unittest.TestCase):
+
+    def test_no_repo_returns_base_script(self):
+        """Without a primary_repo the script ends after the 'who' section."""
+        script = m._make_vm_info_script(None)
+        self.assertIn("cat /proc/loadavg", script)
+        self.assertNotIn("git rev-parse", script)
+
+    def test_simple_repo_name(self):
+        """A simple (no-spaces) repo name produces a plain cd line."""
+        script = m._make_vm_info_script("myrepo")
+        self.assertIn("cd $HOME/code/myrepo ", script)
+
+    def test_repo_with_spaces_uses_single_quotes(self):
+        """shlex.quote wraps names with spaces in single quotes.
+
+        The generated cd line must be:
+            cd $HOME/code/'weird name' 2>/dev/null ...
+        NOT:
+            cd "$HOME/code/'weird name'" ...
+
+        The latter form would pass the literal single quotes to the shell
+        as characters rather than as quoting delimiters.
+        """
+        script = m._make_vm_info_script("weird name")
+        self.assertIn("cd $HOME/code/'weird name'", script)
+        self.assertNotIn('cd "$HOME/code/', script)
+
+
+# ---------------------------------------------------------------------------
 # _build_ps_rows
 # ---------------------------------------------------------------------------
 
@@ -325,7 +358,7 @@ class TestBuildPsRows(unittest.TestCase):
 
         with mock.patch("machine_cli._gather_running_vm_info", return_value={}), \
              mock.patch("machine_cli._gather_active_ports", return_value=[]):
-            rows = m._build_ps_rows(cfg, lima_vms, None)
+            rows = m._build_ps_rows(cfg, lima_vms)
 
         self.assertEqual(len(rows), 1)
         row = rows[0]
@@ -345,7 +378,7 @@ class TestBuildPsRows(unittest.TestCase):
 
         with mock.patch("machine_cli._gather_running_vm_info", return_value={}), \
              mock.patch("machine_cli._gather_active_ports", return_value=[]):
-            rows = m._build_ps_rows(cfg, lima_vms, None)
+            rows = m._build_ps_rows(cfg, lima_vms)
 
         self.assertEqual(len(rows), 1)
         row = rows[0]
@@ -363,7 +396,7 @@ class TestBuildPsRows(unittest.TestCase):
 
         with mock.patch("machine_cli._gather_running_vm_info", return_value={}), \
              mock.patch("machine_cli._gather_active_ports", return_value=[]):
-            rows = m._build_ps_rows(cfg, lima_vms, None)
+            rows = m._build_ps_rows(cfg, lima_vms)
 
         names = [r.name for r in rows]
         self.assertEqual(names.index("alpha"), 0)
@@ -376,7 +409,7 @@ class TestBuildPsRows(unittest.TestCase):
 
         with mock.patch("machine_cli._gather_running_vm_info", return_value={}), \
              mock.patch("machine_cli._gather_active_ports", return_value=[]):
-            rows = m._build_ps_rows(cfg, lima_vms, None)
+            rows = m._build_ps_rows(cfg, lima_vms)
 
         row = rows[0]
         self.assertEqual(row.status, "Stopped")
@@ -400,7 +433,7 @@ class TestBuildPsRows(unittest.TestCase):
         with mock.patch("machine_cli._gather_running_vm_info", return_value=info), \
              mock.patch("machine_cli._gather_active_ports", return_value=[3000, 5432]), \
              mock.patch("machine_cli._vm_uptime", return_value="1h 12m"):
-            rows = m._build_ps_rows(cfg, lima_vms, None)
+            rows = m._build_ps_rows(cfg, lima_vms)
 
         row = rows[0]
         self.assertEqual(row.status, "Running")
