@@ -10,14 +10,18 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import dataclasses
 import datetime
 import hashlib
+import json
 import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -43,6 +47,9 @@ STATE_DIR = _env_dir(
     REPO / ".build" if _IN_CHECKOUT else Path.home() / ".local" / "state" / "machine",
 )
 PROJECTS_FILE = Path(os.environ.get("PROJECTS_FILE") or CONFIG_DIR / "projects.toml")
+
+sys.path.insert(0, str(REPO / "provision"))
+import log_view  # noqa: E402  (non-top-level import after sys.path tweak)
 GOLDEN_DIR = Path.home() / ".cache" / "machine"
 ONEPASS_SOCK_DEFAULT = (
     Path.home()
@@ -252,6 +259,58 @@ def run_provision_in_vm(vm: str, profiles: Iterable[str]) -> None:
         sys.exit(rc)
 
 
+# --- Renderer helpers -------------------------------------------------------
+
+def default_provision_log_path(vm: str) -> Path:
+    """<state-dir>/logs/<vm>-<iso8601>.log (UTC). The renderer creates parents."""
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return STATE_DIR / "logs" / f"{vm}-{ts}.log"
+
+
+def make_renderer(args: argparse.Namespace, vm: str) -> "log_view.Renderer":
+    """Build a Renderer for an `up`-like command, honoring --verbose/--plain and env vars."""
+    plain = getattr(args, "plain", False) or os.environ.get("MACHINE_PLAIN") == "1"
+    verbose = getattr(args, "verbose", False) or os.environ.get("MACHINE_VERBOSE") == "1"
+    tty = sys.stdout.isatty() and not plain
+    log_path = (
+        Path(os.environ["MACHINE_PROVISION_LOG"])
+        if os.environ.get("MACHINE_PROVISION_LOG")
+        else default_provision_log_path(vm)
+    )
+    r = log_view.Renderer(sys.stdout, tty=tty, verbose=verbose, log_path=log_path)
+    hint = "" if verbose else "    (--verbose to stream)"
+    print(f"log: {log_path}{hint}")
+    return r
+
+
+def run_quiet(cmd: Sequence[str], *, renderer: "log_view.Renderer") -> int:
+    """Run a subprocess, piping combined stdout+stderr line-by-line into renderer.raw().
+    Returns the exit code. Caller is responsible for emitting step_start/end around the call."""
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          bufsize=1, text=True) as proc:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            renderer.raw(line.rstrip("\n"))
+        return proc.wait()
+
+
+def spawn_provisioner(vm: str, profiles: list[str]) -> subprocess.Popen:
+    """Build the limactl-shell-into-VM command for provision/run.py and return a streaming Popen.
+    The renderer's consume() drives the rest. Mirrors today's run_provision_in_vm command shape."""
+    config_args = ["/opt/dev-vm/provision.toml",
+                   *(f"/opt/dev-vm/profiles/{p}.toml" for p in profiles)]
+    extra: list[str] = []
+    if os.environ.get("MACHINE_DRY_RUN") == "1":
+        extra.append("--dry-run")
+    sudo_env = []
+    if "MACHINE_SHELL" in os.environ:
+        sudo_env.append(f"MACHINE_SHELL={os.environ['MACHINE_SHELL']}")
+    cmd = ["limactl", "shell", vm, "--", "sudo", *sudo_env,
+           "python3", "/opt/dev-vm/provision/run.py", *extra, *config_args]
+    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            bufsize=1, text=True)
+
+
 # --- Git template rendering (host-side) ------------------------------------
 def read_signing_key() -> str:
     """Resolve the SSH signing pubkey. Order:
@@ -382,36 +441,38 @@ def render_lima_yaml(vm: str) -> Path:
     return out
 
 
-def bake(force: bool = False) -> None:
+def bake(force: bool = False, renderer=None) -> None:
+    _say = (lambda msg: renderer.raw(msg)) if renderer else print
+    _run = (lambda cmd: run_quiet(cmd, renderer=renderer)) if renderer else lambda cmd: run(cmd).returncode
     if not force and golden_fresh():
-        print(f"[bake] cache fresh ({golden_hash()}) — use --force to rebuild")
+        _say(f"[bake] cache fresh ({golden_hash()}) — use --force to rebuild")
         return
     GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
     vm = "machine-base"
     if vm_exists(vm):
-        print(f"[bake] removing stale '{vm}'")
+        _say(f"[bake] removing stale '{vm}'")
         subprocess.run(["limactl", "stop", "-f", vm],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         run(["limactl", "delete", "-f", vm])
 
-    print("[bake] creating base VM (~5 min, base provision only)")
+    _say("[bake] creating base VM (~5 min, base provision only)")
     # Raw lima.yaml — we're creating the cache, can't reference it.
-    run(["limactl", "create", "--tty=false", f"--name={vm}", str(REPO / "lima.yaml")])
-    run(["limactl", "start", vm])
-    print("[bake] uploading provision scripts and config…")
+    _run(["limactl", "create", "--tty=false", f"--name={vm}", str(REPO / "lima.yaml")])
+    _run(["limactl", "start", vm])
+    _say("[bake] uploading provision scripts and config…")
     push_files_to_vm(vm, [])  # no profiles
     render_git_templates(vm)
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     os.environ["MACHINE_PROVISION_LOG"] = str(STATE_DIR / vm / f"provision-{ts}.log")
-    print("[bake] running provision steps inside VM…")
+    _say("[bake] running provision steps inside VM…")
     run_provision_in_vm(vm, [])
-    run(["limactl", "stop", vm])
+    _run(["limactl", "stop", vm])
 
     src = Path.home() / ".lima" / vm / "disk"
     if not src.is_file():
         die(f"[bake] expected disk at {src}")
     img = golden_img()
-    print(f"[bake] exporting {src} → {img}")
+    _say(f"[bake] exporting {src} → {img}")
     tmp = img.with_suffix(img.suffix + ".tmp")
     # APFS clonefile (cp -c) is near-instant + preserves sparseness; fall back
     # to plain cp if -c isn't supported (non-APFS, non-macOS).
@@ -421,7 +482,7 @@ def bake(force: bool = False) -> None:
     tmp.replace(img)
     golden_stamp().write_text(golden_hash() + "\n")
     run(["limactl", "delete", "-f", vm])
-    print(f"[bake] done — {img}")
+    _say(f"[bake] done — {img}")
 
 
 def ensure_golden_image() -> None:
@@ -462,13 +523,442 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def verify_repos_reachable(urls: Sequence[str]) -> None:
+# --- ps helpers -----------------------------------------------------------
+
+def _gather_lima_list_json() -> dict[str, dict]:
+    """Return {vm_name: parsed_json_obj} for every VM Lima knows about.
+
+    limactl list --json emits one JSON object per line (JSONL). This function
+    also tolerates a single JSON array as a fallback.
+    """
+    proc = subprocess.run(
+        ["limactl", "list", "--json"],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        return {}
+    out: dict[str, dict] = {}
+    raw = proc.stdout.strip()
+    if not raw:
+        return {}
+    # Try JSONL first (one object per line), fall back to a single JSON array.
+    try:
+        items = json.loads(raw)
+        if isinstance(items, list):
+            for obj in items:
+                if isinstance(obj, dict) and (name := obj.get("name")):
+                    out[name] = obj
+            return out
+    except json.JSONDecodeError:
+        pass
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and (name := obj.get("name")):
+            out[name] = obj
+    return out
+
+
+def _parse_who_idle(who_output: str, now: datetime.datetime | None = None) -> float | None:
+    """Return seconds since the most recent login, or None if no parseable lines.
+
+    'who' output format (Ubuntu default):
+        ivan     pts/0        2026-05-23 14:30 (10.0.2.2)
+    Columns [2] and [3] are YYYY-MM-DD and HH:MM.
+
+    Note: 'who' reports VM local time. This works as long as host and VM share
+    the same timezone (Lima VMs default to host TZ). If they diverge, idle time
+    could be off by the TZ difference — acceptable trade-off.
+    """
+    if not who_output.strip():
+        return None
+    now = now or datetime.datetime.now()
+    latest: datetime.datetime | None = None
+    for line in who_output.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        try:
+            dt = datetime.datetime.strptime(f"{parts[2]} {parts[3]}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            continue
+        if latest is None or dt > latest:
+            latest = dt
+    if latest is None:
+        return None
+    return max(0.0, (now - latest).total_seconds())
+
+
+def _parse_vm_info(output: str) -> dict:
+    """Parse the multi-section output from _gather_running_vm_info's shell script.
+
+    Sections are separated by '---'. Returns a dict with keys:
+        load1 (float|None), mem_used_bytes (int|None),
+        mem_total_bytes (int|None), idle_minutes (int|None), branch (str|None).
+    """
+    result: dict[str, Any] = {
+        "load1": None,
+        "mem_used_bytes": None,
+        "mem_total_bytes": None,
+        "idle_seconds": None,
+        "branch": None,
+    }
+    sections = output.split("---")
+    # Section 0: /proc/loadavg
+    if len(sections) > 0:
+        la = sections[0].strip()
+        if la:
+            parts = la.split()
+            if parts:
+                try:
+                    result["load1"] = float(parts[0])
+                except (ValueError, IndexError):
+                    pass
+    # Section 1: free -b output — columns: total used free shared buff/cache available
+    # We compute used = total - available (parts[1] - parts[6]), which excludes
+    # buffers/cache and represents truly unavailable memory.
+    if len(sections) > 1:
+        for line in sections[1].splitlines():
+            if line.startswith("Mem:"):
+                parts = line.split()
+                try:
+                    result["mem_total_bytes"] = int(parts[1])
+                    result["mem_used_bytes"] = int(parts[1]) - int(parts[6])
+                except (ValueError, IndexError):
+                    pass
+                break
+    # Section 2: who output — parse idle time as now - most_recent_login
+    if len(sections) > 2:
+        who_out = sections[2].strip()
+        result["idle_seconds"] = _parse_who_idle(who_out)
+    # Section 3: git branch (optional)
+    if len(sections) > 3:
+        branch = sections[3].strip().splitlines()
+        if branch:
+            result["branch"] = branch[-1].strip() or None
+    return result
+
+
+def _make_vm_info_script(primary_repo: str | None) -> str:
+    """Build the shell script passed to `limactl shell` to gather VM metrics."""
+    script = (
+        "cat /proc/loadavg\n"
+        "echo ---\n"
+        "free -b\n"
+        "echo ---\n"
+        "who\n"
+        "echo ---\n"
+    )
+    if primary_repo:
+        script += (
+            f"cd $HOME/code/{shlex.quote(primary_repo)} 2>/dev/null"
+            f" && git rev-parse --abbrev-ref HEAD 2>/dev/null || true\n"
+        )
+    return script
+
+
+def _gather_running_vm_info(vm: str, primary_repo: str | None) -> dict:
+    """One shell call into the VM. Returns parsed dict from _parse_vm_info."""
+    script = _make_vm_info_script(primary_repo)
+    try:
+        proc = subprocess.run(
+            ["limactl", "shell", vm, "--", "sh", "-c", script],
+            capture_output=True, text=True, timeout=3.0,
+        )
+        return _parse_vm_info(proc.stdout)
+    except Exception:
+        return {"load1": None, "mem_used_bytes": None,
+                "mem_total_bytes": None, "idle_seconds": None, "branch": None}
+
+
+def _probe_port(host_port: int, timeout: float = 0.1) -> bool:
+    """Return True if a TCP connection to localhost:host_port succeeds."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        return s.connect_ex(("127.0.0.1", host_port)) == 0
+    finally:
+        s.close()
+
+
+def _gather_active_ports(vm: str) -> list[int]:
+    """Discover active host-side ports for a VM.
+
+    Strategy: read ~/.lima/<vm>/ha.stderr.log (JSON lines), extract unique host
+    ports from "Forwarding TCP from ..." messages, then probe each with a
+    short TCP connect to confirm it is currently accepting connections.
+
+    Lima's ha.stderr.log uses JSON lines with a "msg" field. Forwarding lines
+    look like:
+        {"level":"info","msg":"Forwarding TCP from [::]:3000 to 127.0.0.1:3000",...}
+    Host address may be [::]:PORT, 0.0.0.0:PORT, or 127.0.0.1:PORT.
+    """
+    log = Path.home() / ".lima" / vm / "ha.stderr.log"
+    if not log.is_file():
+        return []
+    try:
+        lines = log.read_text(errors="replace").splitlines()[-2000:]
+    except OSError:
+        return []
+
+    # Match "Forwarding TCP from <host_addr>:<port> to ..."
+    # Host address is IPv4 like 0.0.0.0 / 127.0.0.1, or IPv6 bracket like [::]
+    fwd_re = re.compile(r"Forwarding TCP from (?:\[.*?\]|[\d.]+):(\d+) to ", re.IGNORECASE)
+    candidate_ports: set[int] = set()
+    for raw_line in lines:
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        # Try to parse as JSON first; fall back to plain text regex.
+        try:
+            obj = json.loads(raw_line)
+            msg = obj.get("msg", "")
+        except json.JSONDecodeError:
+            msg = raw_line
+        if m := fwd_re.search(msg):
+            candidate_ports.add(int(m.group(1)))
+
+    live: list[int] = []
+    for port in sorted(candidate_ports):
+        if _probe_port(port):
+            live.append(port)
+    return live
+
+
+def _format_duration_compact(seconds: float) -> str:
+    """Format a duration as a compact human string.
+
+    Examples: 30s, 1m, 1h 01m, 1d 1h.
+    """
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    m, _ = divmod(s, 60)
+    if m < 60:
+        return f"{m}m"
+    h, m = divmod(m, 60)
+    if h < 24:
+        return f"{h}h {m:02d}m"
+    d, h = divmod(h, 24)
+    return f"{d}d {h}h"
+
+
+def _vm_uptime(vm: str, lima_obj: dict) -> str | None:
+    """Return formatted uptime string, e.g. '1h 12m', '22m'.
+
+    Source: ha.pid mtime preferred; `created` field from limactl JSON fallback.
+    """
+    ha_pid = Path.home() / ".lima" / vm / "ha.pid"
+    if ha_pid.is_file():
+        try:
+            delta = time.time() - ha_pid.stat().st_mtime
+        except OSError:
+            delta = None
+    else:
+        delta = None
+    if delta is None:
+        created = lima_obj.get("created")
+        if not created:
+            return None
+        try:
+            dt = datetime.datetime.fromisoformat(created.replace("Z", "+00:00"))
+            delta = (datetime.datetime.now(tz=datetime.timezone.utc) - dt).total_seconds()
+        except ValueError:
+            return None
+    return _format_duration_compact(delta)
+
+
+def _primary_repo_basename(project: dict | None) -> str | None:
+    """Return the basename of the first repo in the project config, or None."""
+    if not project or not isinstance(project, dict):
+        return None
+    repos = project.get("repos", [])
+    if not repos:
+        return None
+    return repo_basename(repos[0])
+
+
+@dataclasses.dataclass
+class PsRow:
+    name: str
+    status: str
+    uptime: str
+    cpu: str
+    mem: str
+    repo: str
+    idle: str
+    ports: str
+
+
+def _make_ps_row(
+    name: str,
+    project: dict | None,
+    lima_obj: dict,
+    info: dict,
+    active_ports: list[int],
+) -> PsRow:
+    """Build a single PsRow from gathered data."""
+    EM = "—"
+
+    # Status
+    if not lima_obj:
+        raw_status = EM
+    else:
+        raw_status = lima_obj.get("status") or EM
+    status = raw_status
+
+    is_running = raw_status == "Running"
+
+    # Uptime
+    if is_running:
+        uptime = _vm_uptime(name, lima_obj) or EM
+    else:
+        uptime = EM
+
+    timed_out = info.get("_timed_out", False)
+    QMARK = "?"
+
+    # CPU — load1 / vm_cpu_count * 100; ">100%" when overloaded
+    if is_running and timed_out:
+        cpu = QMARK
+    elif is_running and info.get("load1") is not None:
+        cpus = lima_obj.get("cpus") or 1
+        cpu_pct = (info["load1"] / cpus) * 100
+        if cpu_pct > 100:
+            cpu = ">100%"
+        else:
+            cpu = f"{int(cpu_pct)}%"
+    else:
+        cpu = EM
+
+    # Memory  "used / total G"
+    if is_running and timed_out:
+        mem = QMARK
+    elif is_running and info.get("mem_used_bytes") is not None and info.get("mem_total_bytes") is not None:
+        used_gb = info["mem_used_bytes"] / 1_073_741_824
+        total_gb = info["mem_total_bytes"] / 1_073_741_824
+        mem = f"{used_gb:.1f} / {total_gb:.0f} G"
+    else:
+        mem = EM
+
+    # Repo (basename + optional branch)
+    primary = _primary_repo_basename(project)
+    if primary:
+        if is_running and timed_out:
+            repo = f"{primary} ({QMARK})"
+        else:
+            branch = info.get("branch") if is_running else None
+            repo = f"{primary} ({branch})" if branch else primary
+    else:
+        repo = EM
+
+    # Idle — seconds since most recent login from 'who' output
+    if is_running and timed_out:
+        idle = QMARK
+    elif is_running and info.get("idle_seconds") is not None:
+        idle = _format_duration_compact(info["idle_seconds"])
+    else:
+        idle = EM
+
+    # Ports
+    if is_running and active_ports:
+        ports = ", ".join(str(p) for p in active_ports)
+    else:
+        ports = EM
+
+    return PsRow(
+        name=name,
+        status=status,
+        uptime=uptime,
+        cpu=cpu,
+        mem=mem,
+        repo=repo,
+        idle=idle,
+        ports=ports,
+    )
+
+
+def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict]) -> list[PsRow]:
+    """Build rows for all projects (union of projects.toml and Lima VMs)."""
+    project_names = [k for k, v in cfg.items() if isinstance(v, dict) and k != "default_profile"]
+    all_names = list(dict.fromkeys([*project_names, *lima_vms.keys()]))
+
+    running = [n for n in all_names if lima_vms.get(n, {}).get("status") == "Running"]
+
+    info_futures: dict[str, dict] = {}
+    ports_futures: dict[str, list[int]] = {}
+
+    if running:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(running))) as pool:
+            info_tasks = {
+                n: pool.submit(_gather_running_vm_info, n, _primary_repo_basename(cfg.get(n)))
+                for n in running
+            }
+            port_tasks = {n: pool.submit(_gather_active_ports, n) for n in running}
+            for n, fut in info_tasks.items():
+                try:
+                    info_futures[n] = fut.result(timeout=5.0)
+                except concurrent.futures.TimeoutError:
+                    info_futures[n] = {"_timed_out": True}
+                except Exception:
+                    info_futures[n] = {}
+            for n, fut in port_tasks.items():
+                try:
+                    ports_futures[n] = fut.result(timeout=4.0)
+                except Exception:
+                    ports_futures[n] = []
+
+    rows: list[PsRow] = []
+    for name in all_names:
+        rows.append(_make_ps_row(
+            name,
+            cfg.get(name),
+            lima_vms.get(name, {}),
+            info_futures.get(name, {}),
+            ports_futures.get(name, []),
+        ))
+    return rows
+
+
+def _print_ps_table(rows: list[PsRow]) -> None:
+    """Print the ps table with dynamic column widths."""
+    headers = ["NAME", "STATUS", "UPTIME", "CPU", "MEM", "REPO", "IDLE", "PORTS"]
+    # Build column data including the header as the first row.
+    cols = [[h] + [getattr(r, h.lower()) for r in rows] for h in headers]
+    widths = [max(len(c) for c in col) for col in cols]
+    for row_vals in zip(*cols):
+        line = "  ".join(f"{cell:<{widths[i]}}" for i, cell in enumerate(row_vals))
+        print(line.rstrip())
+
+
+def cmd_ps(args: argparse.Namespace) -> int:
+    if not PROJECTS_FILE.is_file():
+        print(f"no {PROJECTS_FILE} — copy projects.toml.example and edit")
+        return 0
+    cfg = tomllib.loads(PROJECTS_FILE.read_text())
+
+    lima_vms = _gather_lima_list_json()
+    rows = _build_ps_rows(cfg, lima_vms)
+    _print_ps_table(rows)
+    return 0
+
+
+def verify_repos_reachable(urls: Sequence[str], renderer=None) -> None:
     """Run `git ls-remote` against each URL on the host before we touch the
     VM. Catches typos and missing access early, when the failure is cheap —
     otherwise the user discovers them only after a full provision (~minutes)."""
     if not urls:
         return
-    print(f"[machine] checking access to {len(urls)} repo(s)…")
+    msg = f"[machine] checking access to {len(urls)} repo(s)…"
+    if renderer is not None:
+        renderer.raw(msg)
+    else:
+        print(msg)
     env = {
         **os.environ,
         # Don't block on credential prompts for HTTPS URLs.
@@ -511,73 +1001,115 @@ def cmd_up(args: argparse.Namespace) -> int:
     if args.dry_run:
         os.environ["MACHINE_DRY_RUN"] = "1"
 
-    # Fail fast on typos / access before spending minutes on VM setup.
-    verify_repos_reachable(urls)
-
-    if not vm_exists(name):
-        # A previous `limactl create` may have left a half-populated VM dir
-        # behind (e.g. base image copied but disk-resize refused). It blocks
-        # the next create, so clear it before retrying.
-        leftover = Path.home() / ".lima" / name
-        if leftover.exists():
-            print(f"[machine] removing stale VM dir {leftover}")
-            shutil.rmtree(leftover)
-        ensure_golden_image()
-        lima_yaml = render_lima_yaml(name)
-        run(["limactl", "create", "--tty=false", f"--name={name}", str(lima_yaml)])
-    run(["limactl", "start", name])
-
-    print(f"[machine] uploading provision scripts and config to '{name}'…")
-    push_files_to_vm(name, profiles)
-    render_git_templates(name)
-    if not os.environ.get("MACHINE_PROVISION_LOG"):
-        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        log = STATE_DIR / name / f"provision-{ts}.log"
-        os.environ["MACHINE_PROVISION_LOG"] = str(log)
-        print(f"[machine] provision log: {log}")
-    run_provision_in_vm(name, profiles)
-
-    # Clone repos in parallel; each clone serializes its own deps install.
     rc = 0
-    if urls:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(urls)) as pool:
-            for fut in concurrent.futures.as_completed(
-                pool.submit(clone_repo, name, u) for u in urls
-            ):
+    with make_renderer(args, name) as r:
+        s = r.step_start("preflight checks")
+        try:
+            verify_repos_reachable(urls, renderer=r)
+            r.step_end(s, "ok")
+        except SystemExit:
+            r.step_end(s, "fail")
+            raise
+
+        if not vm_exists(name):
+            # A previous `limactl create` may have left a half-populated VM dir
+            # behind (e.g. base image copied but disk-resize refused). It blocks
+            # the next create, so clear it before retrying.
+            leftover = Path.home() / ".lima" / name
+            if leftover.exists():
+                r.raw(f"removing stale VM dir {leftover}")
+                shutil.rmtree(leftover)
+            if not golden_fresh():
+                s = r.step_start("bake base image")
                 try:
-                    fut.result()
+                    bake(force=False, renderer=r)
+                except subprocess.CalledProcessError as e:
+                    r.step_end(s, "fail", str(e.returncode))
+                    raise
+                r.step_end(s, "ok")
+            s = r.step_start(f"create VM '{name}'")
+            lima_yaml = render_lima_yaml(name)
+            rc = run_quiet(["limactl", "create", "--tty=false", f"--name={name}", str(lima_yaml)],
+                           renderer=r)
+            if rc == 0:
+                r.step_end(s, "ok")
+            else:
+                r.step_end(s, "fail", str(rc))
+                return rc
+
+        s = r.step_start(f"start VM '{name}'")
+        rc = run_quiet(["limactl", "start", name], renderer=r)
+        if rc == 0:
+            r.step_end(s, "ok")
+        else:
+            r.step_end(s, "fail", str(rc))
+            return rc
+
+        s = r.step_start("upload provision config")
+        try:
+            push_files_to_vm(name, profiles)
+            render_git_templates(name)
+        except subprocess.CalledProcessError as e:
+            r.step_end(s, "fail", str(e.returncode))
+            raise
+        r.step_end(s, "ok")
+
+        s = r.step_start("provisioning")
+        rc = r.consume(spawn_provisioner(name, profiles), depth=1)
+        if rc == 0:
+            r.step_end(s, "ok")
+        else:
+            r.step_end(s, "fail", str(rc))
+            return rc
+
+        rc = 0
+        if urls:
+            s = r.step_start("clone repos")
+            for url in urls:
+                try:
+                    clone_repo_quiet(name, url, r)
                 except subprocess.CalledProcessError as e:
                     rc = e.returncode or 1
+            r.step_end(s, "ok" if rc == 0 else "fail")
+            if rc != 0:
+                return rc
+
     if rc == 0:
-        print(f"[machine] '{name}' is ready — run 'machine ssh {name}' to log in.")
+        print(f"✓ {name} ready — run 'machine ssh {name}' to log in.")
         refresh_ssh_config()
     return rc
 
 
-def clone_repo(vm: str, url: str) -> None:
-    """Clone one repo into ~/code/<basename>/ inside the VM. Idempotent."""
+def clone_repo_quiet(vm: str, url: str, renderer: "log_view.Renderer") -> None:
+    """Clone one repo into ~/code/<basename>/ inside the VM, reporting progress
+    to the renderer as a nested step. Idempotent. Raises CalledProcessError on
+    clone failure (deps failures are non-fatal)."""
     repo_name = repo_basename(url)
+    cs = renderer.step_start(repo_name, depth=1)
+
+    # Check if already present.
     rc = lima_shell(
         vm,
         ["bash", "-lc", f'[ -d "$HOME/code/{shlex.quote(repo_name)}/.git" ]'],
         stdin=subprocess.DEVNULL,
     ).returncode
     if rc == 0:
-        print(f"[clone] {repo_name}: already present (skip)")
+        renderer.step_end(cs, "skip", "already present")
         return
-    print(f"[clone] {repo_name} from {url}")
-    # known_hosts is pre-seeded with github.com keys at provision time, so we
-    # can use yes (strict). accept-new is the fallback for non-github hosts.
-    lima_shell(
-        vm,
-        ["env",
-         "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new -o UpdateHostKeys=no",
-         "bash", "-lc",
-         f'mkdir -p "$HOME/code" && cd "$HOME/code" && '
-         f'git clone --recurse-submodules -- {shlex.quote(url)}'],
-        stdin=subprocess.DEVNULL, check=True,
-    )
-    # JS deps if package.json present. Honor packageManager (yarn/pnpm), else npm.
+
+    # Clone.
+    clone_cmd = ["limactl", "shell", vm, "--",
+                 "env",
+                 "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new -o UpdateHostKeys=no",
+                 "bash", "-lc",
+                 f'mkdir -p "$HOME/code" && cd "$HOME/code" && '
+                 f'git clone --recurse-submodules -- {shlex.quote(url)}']
+    rc = run_quiet(clone_cmd, renderer=renderer)
+    if rc != 0:
+        renderer.step_end(cs, "fail", str(rc))
+        raise subprocess.CalledProcessError(rc, clone_cmd)
+
+    # JS deps if package.json present (non-fatal).
     deps_script = (
         f'cd "$HOME/code/{shlex.quote(repo_name)}" 2>/dev/null || exit 0\n'
         '[ -f package.json ] || exit 0\n'
@@ -589,9 +1121,12 @@ def clone_repo(vm: str, url: str) -> None:
         '  echo "[deps] npm install"; npm install\n'
         'fi'
     )
-    rc = lima_shell(vm, ["bash", "-lc", deps_script], stdin=subprocess.DEVNULL).returncode
-    if rc != 0:
-        print(f"[deps] {repo_name}: install failed (continuing)")
+    deps_cmd = ["limactl", "shell", vm, "--", "bash", "-lc", deps_script]
+    deps_rc = run_quiet(deps_cmd, renderer=renderer)
+    if deps_rc != 0:
+        renderer.raw(f"[deps] {repo_name}: install failed (continuing)")
+
+    renderer.step_end(cs, "ok")
 
 
 def cmd_down(args: argparse.Namespace) -> int:
@@ -1411,7 +1946,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", metavar="<command>")
 
     sub.add_parser("list", help="List projects from projects.toml with live VM status")
-    sub.add_parser("ps", help="Alias for 'list'")
+    sub.add_parser("ps", help="Rich live-status table for all VMs (uptime, cpu/mem, repo, idle, ports)")
     sub.add_parser("doctor", help="Preflight: lima, git config, SSH agent, signing key, op CLI")
     sub.add_parser("validate", help="Schema-check projects.toml and referenced profiles (no VM)")
 
@@ -1421,6 +1956,10 @@ def build_parser() -> argparse.ArgumentParser:
     up = sub.add_parser("up", help="Create (if needed) + start + provision + clone the project repo(s)")
     up.add_argument("--dry-run", action="store_true",
                     help="Print provision steps without executing them")
+    up.add_argument("--verbose", action="store_true",
+                    help="Stream raw subprocess output inline (in addition to log file)")
+    up.add_argument("--plain", action="store_true",
+                    help="Disable TTY spinner/redraw (one line per step, plain text)")
     up.add_argument("project")
 
     sub.add_parser("down", help="Stop the VM").add_argument("project")
@@ -1463,7 +2002,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {
     "list": cmd_list,
-    "ps": cmd_list,  # alias
+    "ps": cmd_ps,
     "doctor": cmd_doctor,
     "validate": cmd_validate,
     "init": cmd_init,

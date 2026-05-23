@@ -77,6 +77,8 @@ machine ssh blog           # interactive shell, cwd = ~/code/blog
 
 ![demo](assets/machine.gif)
 
+Provisioning output is captured to `~/.local/state/machine/logs/<vm>-<iso>.log` (or `<repo>/.build/logs/` in a git checkout) — the path is printed at the start of every `up` run. Pass `--verbose` to stream raw output inline.
+
 Inside the VM, each repo is at `~/code/<repo-basename>/`. JS deps are installed automatically on first clone (yarn / pnpm / npm, picked from `packageManager` in `package.json`). For env vars, drop a `.env` file in the project — Node's `dotenv` (or your framework) reads it directly. For secrets you'd rather not write to disk, see [1Password env injection](#1password-env-injection).
 
 Host browser → VM web app: ports `3000-3010`, `4200`, `5173-5180`, `8080-8099` are forwarded to `127.0.0.1`.
@@ -121,10 +123,10 @@ In VS Code → Remote-SSH: open the host picker, pick `machine-<project>`, then 
 | Command | What |
 |---|---|
 | `machine list` | List projects from `projects.toml` |
-| `machine ps` | List projects with live VM status |
+| `machine ps` | Rich live-status table: per-VM uptime, CPU/mem, repo + branch, idle time, active host ports |
 | `machine doctor` | Preflight host checks: lima, git config, SSH agent, signing key, `op` CLI |
 | `machine validate` | Schema-check `projects.toml` and referenced profiles (no VM) |
-| `machine up <p>` | Create if needed, start, provision (base + project's profiles), clone the repo(s). Idempotent. `--dry-run` prints provision steps without executing. |
+| `machine up <p>` | Create if needed, start, provision, clone the repo(s). Idempotent. `--dry-run` prints provision steps without executing. `--verbose` streams raw provisioner output; `--plain` disables the spinner (useful in CI). |
 | `machine down <p>` | Stop the VM |
 | `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). Attaches to a per‑project tmux session so `Ctrl‑b c` opens new windows that stay in the VM at the current pane's cwd. |
 | `machine run <p> <cmd>...` | Non-interactive command in the VM |
@@ -289,3 +291,6 @@ No host filesystem is mounted. Each project gets its own VM, so a compromise of 
 | `MACHINE_USE_1PASSWORD` | set `=1` to forward 1Password's SSH agent instead of macOS Keychain |
 | `ONEPASS_SOCK` | `~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock` |
 | `PROJECTS_FILE` | `<repo>/projects.toml` |
+| `MACHINE_VERBOSE` | set `=1` to stream raw provisioner output inline (equivalent to `--verbose`) |
+| `MACHINE_PLAIN` | set `=1` to disable the spinner and use plain text output (equivalent to `--plain`) |
+| `MACHINE_PROVISION_LOG` | override the default provisioning log path (`<state-dir>/logs/<vm>-<iso>.log`) |

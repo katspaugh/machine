@@ -305,8 +305,22 @@ class TestRefreshSshConfig(unittest.TestCase):
             _shutil.rmtree(outside, ignore_errors=True)
 
 
+def _make_stub_renderer():
+    """Return a context-managed mock renderer suitable for patching make_renderer."""
+    stub = _mock.MagicMock()
+    # step_start returns a unique handle each call; step_end / raw / consume succeed.
+    stub.__enter__ = _mock.Mock(return_value=stub)
+    stub.__exit__ = _mock.Mock(return_value=False)
+    stub.step_start.return_value = _mock.Mock()
+    stub.step_end.return_value = None
+    stub.raw.return_value = None
+    stub.consume.return_value = 0  # provisioner succeeds
+    return stub
+
+
 class TestLifecycleHooks(unittest.TestCase):
     def test_cmd_up_calls_refresh_on_success(self):
+        stub_r = _make_stub_renderer()
         with _mock.patch.object(m, "refresh_ssh_config") as ref, \
              _mock.patch.object(m, "validate_name"), \
              _mock.patch.object(m, "project_urls", return_value=[]), \
@@ -314,16 +328,19 @@ class TestLifecycleHooks(unittest.TestCase):
              _mock.patch.object(m, "project_shell", return_value="zsh"), \
              _mock.patch.object(m, "verify_repos_reachable"), \
              _mock.patch.object(m, "vm_exists", return_value=True), \
-             _mock.patch.object(m, "run"), \
+             _mock.patch.object(m, "run_quiet", return_value=0), \
+             _mock.patch.object(m, "spawn_provisioner"), \
              _mock.patch.object(m, "push_files_to_vm"), \
              _mock.patch.object(m, "render_git_templates"), \
-             _mock.patch.object(m, "run_provision_in_vm"):
+             _mock.patch.object(m, "make_renderer", return_value=stub_r):
             ns = _mock.Mock(project="blog", dry_run=False)
             rc = m.cmd_up(ns)
         self.assertEqual(rc, 0)
         ref.assert_called_once()
 
     def test_cmd_up_does_not_call_refresh_on_failure(self):
+        stub_r = _make_stub_renderer()
+        stub_r.consume.return_value = 1  # provisioner fails
         with _mock.patch.object(m, "refresh_ssh_config") as ref, \
              _mock.patch.object(m, "validate_name"), \
              _mock.patch.object(m, "project_urls", return_value=["git@github.com:x/y.git"]), \
@@ -331,12 +348,11 @@ class TestLifecycleHooks(unittest.TestCase):
              _mock.patch.object(m, "project_shell", return_value="zsh"), \
              _mock.patch.object(m, "verify_repos_reachable"), \
              _mock.patch.object(m, "vm_exists", return_value=True), \
-             _mock.patch.object(m, "run"), \
+             _mock.patch.object(m, "run_quiet", return_value=0), \
+             _mock.patch.object(m, "spawn_provisioner"), \
              _mock.patch.object(m, "push_files_to_vm"), \
              _mock.patch.object(m, "render_git_templates"), \
-             _mock.patch.object(m, "run_provision_in_vm"), \
-             _mock.patch.object(m, "clone_repo",
-                                side_effect=__import__("subprocess").CalledProcessError(1, "git")):
+             _mock.patch.object(m, "make_renderer", return_value=stub_r):
             ns = _mock.Mock(project="blog", dry_run=False)
             rc = m.cmd_up(ns)
         self.assertNotEqual(rc, 0)

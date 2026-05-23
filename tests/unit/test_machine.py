@@ -1,6 +1,7 @@
 """Unit tests for pure helpers in bin/machine. No VM required."""
 from __future__ import annotations
 
+import datetime
 import importlib.util
 import os
 import sys
@@ -181,6 +182,157 @@ class TestLoadDotenv(unittest.TestCase):
                 self.assertEqual(os.environ.get("FOO"), "bar")
                 self.assertEqual(os.environ.get("QUOTED"), "baz qux")
                 self.assertEqual(os.environ.get("SINGLE"), "one two")
+
+
+class TestVerifyReposReachable(unittest.TestCase):
+    def test_routes_message_through_renderer_raw(self):
+        """When a renderer is provided, the access-check message must go through
+        renderer.raw() rather than stdout."""
+        stub = mock.MagicMock()
+        fake_future = mock.MagicMock()
+        fake_future.result.return_value = ""  # no error
+
+        def fake_submit(fn, url):
+            return fake_future
+
+        fake_pool = mock.MagicMock()
+        fake_pool.__enter__ = mock.Mock(return_value=fake_pool)
+        fake_pool.__exit__ = mock.Mock(return_value=False)
+        fake_pool.submit.side_effect = fake_submit
+
+        with mock.patch("concurrent.futures.ThreadPoolExecutor", return_value=fake_pool), \
+             mock.patch("concurrent.futures.as_completed", return_value=[fake_future]):
+            with mock.patch("builtins.print") as mock_print:
+                m.verify_repos_reachable(["git@github.com:org/repo.git"], renderer=stub)
+
+        stub.raw.assert_called_once()
+        call_arg = stub.raw.call_args[0][0]
+        self.assertIn("checking access", call_arg)
+        mock_print.assert_not_called()
+
+    def test_falls_back_to_print_without_renderer(self):
+        """When no renderer is provided, the message falls back to print()."""
+        fake_future = mock.MagicMock()
+        fake_future.result.return_value = ""
+
+        fake_pool = mock.MagicMock()
+        fake_pool.__enter__ = mock.Mock(return_value=fake_pool)
+        fake_pool.__exit__ = mock.Mock(return_value=False)
+        fake_pool.submit.return_value = fake_future
+
+        with mock.patch("concurrent.futures.ThreadPoolExecutor", return_value=fake_pool), \
+             mock.patch("concurrent.futures.as_completed", return_value=[fake_future]):
+            with mock.patch("builtins.print") as mock_print:
+                m.verify_repos_reachable(["git@github.com:org/repo.git"])
+
+        mock_print.assert_called_once()
+        self.assertIn("checking access", mock_print.call_args[0][0])
+
+    def test_empty_urls_is_noop(self):
+        """Empty URL list returns immediately without printing or checking."""
+        stub = mock.MagicMock()
+        with mock.patch("builtins.print") as mock_print:
+            m.verify_repos_reachable([], renderer=stub)
+        stub.raw.assert_not_called()
+        mock_print.assert_not_called()
+
+
+class TestCpuNormalization(unittest.TestCase):
+    def test_cpu_normalized_by_cpu_count(self):
+        """load1=2.0 with 4 CPUs → 50%."""
+        info = {"load1": 2.0, "mem_used_bytes": None, "mem_total_bytes": None,
+                "idle_seconds": None, "branch": None}
+        row = m._make_ps_row("vm", None, {"status": "Running", "cpus": 4}, info, [])
+        self.assertEqual(row.cpu, "50%")
+
+    def test_cpu_overload_shows_gt_100(self):
+        """load1=2.5 with 1 CPU → >100%."""
+        info = {"load1": 2.5, "mem_used_bytes": None, "mem_total_bytes": None,
+                "idle_seconds": None, "branch": None}
+        row = m._make_ps_row("vm", None, {"status": "Running", "cpus": 1}, info, [])
+        self.assertEqual(row.cpu, ">100%")
+
+    def test_cpu_missing_cpus_defaults_to_1(self):
+        """If lima_obj has no 'cpus', fall back to 1."""
+        info = {"load1": 0.5, "mem_used_bytes": None, "mem_total_bytes": None,
+                "idle_seconds": None, "branch": None}
+        row = m._make_ps_row("vm", None, {"status": "Running"}, info, [])
+        self.assertEqual(row.cpu, "50%")
+
+
+class TestMemFormula(unittest.TestCase):
+    def test_mem_formula_uses_memtotal_minus_available(self):
+        """mem_used = total - available, not free's 'used' column."""
+        # free -b output: total=4G, used=1G (free col), free=2.5G, shared=20M,
+        #   buff/cache=500M, available=3.5G → real used = 4G - 3.5G = 500M
+        free_block = (
+            "              total        used        free      shared  buff/cache   available\n"
+            "Mem:    4000000000  1000000000  2500000000    20000000   500000000  3500000000\n"
+        )
+        output = free_block + "---\n---\n"
+        result = m._parse_vm_info("---\n" + free_block)
+        self.assertEqual(result["mem_used_bytes"], 500000000)
+        self.assertNotEqual(result["mem_used_bytes"], 1000000000)
+
+
+class TestParseWhoIdle(unittest.TestCase):
+    def _now(self):
+        return datetime.datetime(2026, 5, 23, 16, 0, 0)
+
+    def test_takes_most_recent_login(self):
+        """Returns delta from the most recent (later) login time."""
+        who_out = (
+            "ivan     pts/0        2026-05-23 14:30 (10.0.2.2)\n"
+            "ivan     pts/1        2026-05-23 15:12 (10.0.2.2)\n"
+        )
+        # now=16:00, latest=15:12 → 48 minutes = 2880 seconds
+        result = m._parse_who_idle(who_out, now=self._now())
+        self.assertAlmostEqual(result, 2880.0, places=0)
+
+    def test_empty_input_returns_none(self):
+        self.assertIsNone(m._parse_who_idle(""))
+        self.assertIsNone(m._parse_who_idle("   \n  "))
+
+    def test_malformed_lines_skipped(self):
+        """Lines without enough columns are ignored; valid line still parsed."""
+        who_out = (
+            "badline\n"
+            "ivan     pts/0        2026-05-23 15:30 (10.0.2.2)\n"
+        )
+        # now=16:00, latest=15:30 → 30 minutes = 1800 seconds
+        result = m._parse_who_idle(who_out, now=self._now())
+        self.assertAlmostEqual(result, 1800.0, places=0)
+
+    def test_no_parseable_lines_returns_none(self):
+        who_out = "no date here at all\n"
+        self.assertIsNone(m._parse_who_idle(who_out, now=self._now()))
+
+
+class TestPsRowIdle(unittest.TestCase):
+    def test_ps_row_shows_idle_for_running_vm(self):
+        """IDLE column shows formatted duration when who has a login 30 min ago."""
+        # supply idle_seconds directly (30 minutes = 1800 s).
+        info = {"load1": None, "mem_used_bytes": None, "mem_total_bytes": None,
+                "idle_seconds": 1800.0, "branch": None}
+        row = m._make_ps_row("vm", None, {"status": "Running"}, info, [])
+        self.assertEqual(row.idle, "30m")
+
+    def test_ps_row_idle_em_dash_when_who_empty(self):
+        """IDLE column shows — when idle_seconds is None."""
+        info = {"load1": None, "mem_used_bytes": None, "mem_total_bytes": None,
+                "idle_seconds": None, "branch": None}
+        row = m._make_ps_row("vm", None, {"status": "Running"}, info, [])
+        self.assertEqual(row.idle, "—")
+
+
+class TestPsRowTimeout(unittest.TestCase):
+    def test_row_shows_question_marks_on_timeout(self):
+        """When _timed_out flag is set, cpu/mem/idle show '?'."""
+        info = {"_timed_out": True}
+        row = m._make_ps_row("vm", None, {"status": "Running"}, info, [])
+        self.assertEqual(row.cpu, "?")
+        self.assertEqual(row.mem, "?")
+        self.assertEqual(row.idle, "?")
 
 
 if __name__ == "__main__":

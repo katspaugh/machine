@@ -13,6 +13,7 @@ Flags:
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import pwd
@@ -122,6 +123,23 @@ class Runner:
         subprocess.run(argv, env=self.env, check=check)
 
 
+# --- Step protocol ----------------------------------------------------------
+@contextlib.contextmanager
+def step(name: str):
+    """Context manager that emits machine-readable [step:start] / [step:end] markers."""
+    print(f"[step:start] {name}", file=sys.stderr, flush=True)
+    try:
+        yield
+    except subprocess.CalledProcessError as e:
+        print(f"[step:end] {name} fail {e.returncode}", file=sys.stderr, flush=True)
+        raise
+    except BaseException:
+        print(f"[step:end] {name} fail 1", file=sys.stderr, flush=True)
+        raise
+    else:
+        print(f"[step:end] {name} ok", file=sys.stderr, flush=True)
+
+
 # --- Section handlers ------------------------------------------------------
 def _blocks(value: Any) -> list[dict[str, Any]]:
     """Normalize a config field that may be a single table or array of tables."""
@@ -142,11 +160,15 @@ def step_apt(cfg: dict[str, Any], runner: Runner, gate: dict[str, str]) -> None:
             pkgs.extend(b.get("packages", []))
     if not pkgs:
         return
-    runner.sh("apt-get update -qq && apt-get -y upgrade")
-    runner.sh(
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "
-        + " ".join(shlex.quote(p) for p in pkgs)
-    )
+    with step("apt update"):
+        runner.sh("apt-get update -qq && apt-get -y upgrade")
+    first_pkg = pkgs[0]
+    step_name = f"apt install {first_pkg}..."
+    with step(step_name):
+        runner.sh(
+            "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "
+            + " ".join(shlex.quote(p) for p in pkgs)
+        )
 
 
 def step_apt_repo(cfg: dict[str, Any], runner: Runner, gate: dict[str, str], codename: str) -> None:
@@ -157,37 +179,38 @@ def step_apt_repo(cfg: dict[str, Any], runner: Runner, gate: dict[str, str], cod
     repos = [r for r in cfg.get("apt_repo", []) if when_ok(r, env=gate)]
     if not repos:
         return
-    runner.sh(f"install -m 0755 -d {KEYRINGS}")
+    with step("apt repos"):
+        runner.sh(f"install -m 0755 -d {KEYRINGS}")
 
-    parallel = []
-    for r in repos:
-        name = r["name"]
-        key = f"{KEYRINGS}/{name}.gpg"
-        deb = r["deb"].format(codename=codename, arch=gate["arch"])
-        # NodeSource hands us ASCII-armored keys; everything else returns binary.
-        # `--dearmor` is a no-op on already-binary input in modern gpg.
-        parallel.append(
-            f"( curl -fsSL {shlex.quote(r['key_url'])} "
-            f"| gpg --batch --yes --dearmor -o {key} && chmod a+r {key} && "
-            f'echo "deb [arch={gate["arch"]} signed-by={key}] {deb}" '
-            f"> {SOURCES_D}/{name}.list )"
-        )
-    # Background each pipeline, wait for all, fail if any failed.
-    runner.sh(
-        "set -e; " + " & ".join(parallel) + " & "
-        "fail=0; for p in $(jobs -p); do wait $p || fail=1; done; "
-        "[ $fail -eq 0 ]"
-    )
-
-    all_pkgs = " ".join(shlex.quote(p) for r in repos for p in r.get("packages", []))
-    if all_pkgs:
-        runner.sh("apt-get update -qq")
+        parallel = []
+        for r in repos:
+            name = r["name"]
+            key = f"{KEYRINGS}/{name}.gpg"
+            deb = r["deb"].format(codename=codename, arch=gate["arch"])
+            # NodeSource hands us ASCII-armored keys; everything else returns binary.
+            # `--dearmor` is a no-op on already-binary input in modern gpg.
+            parallel.append(
+                f"( curl -fsSL {shlex.quote(r['key_url'])} "
+                f"| gpg --batch --yes --dearmor -o {key} && chmod a+r {key} && "
+                f'echo "deb [arch={gate["arch"]} signed-by={key}] {deb}" '
+                f"> {SOURCES_D}/{name}.list )"
+            )
+        # Background each pipeline, wait for all, fail if any failed.
         runner.sh(
-            f"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends {all_pkgs}"
+            "set -e; " + " & ".join(parallel) + " & "
+            "fail=0; for p in $(jobs -p); do wait $p || fail=1; done; "
+            "[ $fail -eq 0 ]"
         )
-    for r in repos:
-        if "post_shell" in r:
-            runner.sh(r["post_shell"])
+
+        all_pkgs = " ".join(shlex.quote(p) for r in repos for p in r.get("packages", []))
+        if all_pkgs:
+            runner.sh("apt-get update -qq")
+            runner.sh(
+                f"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends {all_pkgs}"
+            )
+        for r in repos:
+            if "post_shell" in r:
+                runner.sh(r["post_shell"])
 
 
 def step_installer(cfg: dict[str, Any], runner: Runner, sentinels: Sentinels) -> None:
@@ -196,13 +219,16 @@ def step_installer(cfg: dict[str, Any], runner: Runner, sentinels: Sentinels) ->
         tag = f"installer-{name}"
         if sentinels.done(tag):
             print(f"[provision] {tag}: already done", file=sys.stderr)
+            print(f"[step:start] install {name}", file=sys.stderr, flush=True)
+            print(f"[step:end] install {name} skip already done", file=sys.stderr, flush=True)
             continue
-        env_pre = " ".join(f"{k}={shlex.quote(v)}" for k, v in i.get("env", {}).items())
-        cmd = f"curl -fsSL {shlex.quote(i['url'])} | {env_pre} bash".rstrip()
-        runner.sh(cmd, as_user=bool(i.get("run_as_user")))
-        if "verify" in i:
-            runner.sh(i["verify"], as_user=bool(i.get("run_as_user")))
-        sentinels.mark(tag)
+        with step(f"install {name}"):
+            env_pre = " ".join(f"{k}={shlex.quote(v)}" for k, v in i.get("env", {}).items())
+            cmd = f"curl -fsSL {shlex.quote(i['url'])} | {env_pre} bash".rstrip()
+            runner.sh(cmd, as_user=bool(i.get("run_as_user")))
+            if "verify" in i:
+                runner.sh(i["verify"], as_user=bool(i.get("run_as_user")))
+            sentinels.mark(tag)
 
 
 def step_release(cfg: dict[str, Any], runner: Runner, sentinels: Sentinels, arch: str) -> None:
@@ -211,17 +237,20 @@ def step_release(cfg: dict[str, Any], runner: Runner, sentinels: Sentinels, arch
         tag = f"release-{name}"
         if sentinels.done(tag):
             print(f"[provision] {tag}: already done", file=sys.stderr)
+            print(f"[step:start] release {name}", file=sys.stderr, flush=True)
+            print(f"[step:end] release {name} skip already done", file=sys.stderr, flush=True)
             continue
-        url = r["url"].format(arch=arch)
-        runner.sh(
-            f"tmp=$(mktemp -d) && "
-            f"curl -fsSL {shlex.quote(url)} | tar -xz -C \"$tmp\" && "
-            f"install -m 0755 \"$tmp/{r['bin']}\" {shlex.quote(r['install_to'])} && "
-            f"rm -rf \"$tmp\""
-        )
-        if "verify" in r:
-            runner.sh(r["verify"])
-        sentinels.mark(tag)
+        with step(f"release {name}"):
+            url = r["url"].format(arch=arch)
+            runner.sh(
+                f"tmp=$(mktemp -d) && "
+                f"curl -fsSL {shlex.quote(url)} | tar -xz -C \"$tmp\" && "
+                f"install -m 0755 \"$tmp/{r['bin']}\" {shlex.quote(r['install_to'])} && "
+                f"rm -rf \"$tmp\""
+            )
+            if "verify" in r:
+                runner.sh(r["verify"])
+            sentinels.mark(tag)
 
 
 def step_corepack(cfg: dict[str, Any], runner: Runner, sentinels: Sentinels) -> None:
@@ -230,13 +259,16 @@ def step_corepack(cfg: dict[str, Any], runner: Runner, sentinels: Sentinels) -> 
         return
     if sentinels.done("corepack"):
         print("[provision] corepack: already done", file=sys.stderr)
+        print("[step:start] corepack", file=sys.stderr, flush=True)
+        print("[step:end] corepack skip already done", file=sys.stderr, flush=True)
         return
-    # `corepack enable` and `prepare --activate` write shims into the Node
-    # install dir (/usr/bin for apt-installed Node), so they need root.
-    runner.sh("corepack enable")
-    for p in c.get("prepare", []):
-        runner.sh(f"corepack prepare {shlex.quote(p)} --activate")
-    sentinels.mark("corepack")
+    with step("corepack"):
+        # `corepack enable` and `prepare --activate` write shims into the Node
+        # install dir (/usr/bin for apt-installed Node), so they need root.
+        runner.sh("corepack enable")
+        for p in c.get("prepare", []):
+            runner.sh(f"corepack prepare {shlex.quote(p)} --activate")
+        sentinels.mark("corepack")
 
 
 def step_npm_global(cfg: dict[str, Any], runner: Runner) -> None:
@@ -247,12 +279,17 @@ def step_npm_global(cfg: dict[str, Any], runner: Runner) -> None:
     # apt-installed Node lives in /usr/lib/node_modules (root-owned), so global
     # installs need root. Single Node per VM = shared globals is fine.
     if pkgs:
-        runner.sh(f"npm install -g {pkgs}")
+        with step("npm globals"):
+            runner.sh(f"npm install -g {pkgs}")
 
 
 def step_profile_d(cfg: dict[str, Any], runner: Runner) -> None:
-    for name in (cfg.get("profile_d") or {}).get("files", []):
-        runner.sh(f"install -m 0644 {PROFILE_D_SRC / name} {PROFILE_D_DST / name}")
+    files = (cfg.get("profile_d") or {}).get("files", [])
+    if not files:
+        return
+    with step("profile.d"):
+        for name in files:
+            runner.sh(f"install -m 0644 {PROFILE_D_SRC / name} {PROFILE_D_DST / name}")
 
 
 def step_claude(cfg: dict[str, Any], runner: Runner) -> None:
@@ -263,10 +300,12 @@ def step_claude(cfg: dict[str, Any], runner: Runner) -> None:
     marketplace_id = marketplace.rsplit("/", 1)[-1]
     # marketplace add / plugin install are noisy when already done: capture
     # output, treat "already" as success, re-raise anything else.
-    runner.sh(_idempotent_claude_cmd(f"plugin marketplace add {shlex.quote(marketplace)}"), as_user=True)
+    with step("claude marketplace"):
+        runner.sh(_idempotent_claude_cmd(f"plugin marketplace add {shlex.quote(marketplace)}"), as_user=True)
     for p in c.get("plugins", []):
-        spec = shlex.quote(f"{p}@{marketplace_id}")
-        runner.sh(_idempotent_claude_cmd(f"plugin install {spec}"), as_user=True)
+        with step(f"claude plugin {p}"):
+            spec = shlex.quote(f"{p}@{marketplace_id}")
+            runner.sh(_idempotent_claude_cmd(f"plugin install {spec}"), as_user=True)
 
     plugins = c.get("plugins", [])
     settings = {
@@ -277,11 +316,12 @@ def step_claude(cfg: dict[str, Any], runner: Runner) -> None:
     user_home = runner.env["USER_HOME"]
     user = runner.env["LIMA_USER"]
     quoted = shlex.quote(settings_json)
-    runner.sh(
-        f"install -d -m 0755 -o {user} -g {user} {user_home}/.claude && "
-        f"printf %s {quoted} | install -m 0644 -o {user} -g {user} /dev/stdin "
-        f"{user_home}/.claude/settings.json"
-    )
+    with step("claude settings"):
+        runner.sh(
+            f"install -d -m 0755 -o {user} -g {user} {user_home}/.claude && "
+            f"printf %s {quoted} | install -m 0644 -o {user} -g {user} /dev/stdin "
+            f"{user_home}/.claude/settings.json"
+        )
 
 
 def _idempotent_claude_cmd(args: str) -> str:
@@ -300,7 +340,9 @@ def step_shell(cfg: dict[str, Any], runner: Runner, gate: dict[str, str]) -> Non
     for s in cfg.get("shell", []):
         if not when_ok(s, env=gate):
             continue
-        runner.sh(s["cmd"], as_user=bool(s.get("run_as_user")))
+        cmd_name = s["cmd"].strip().replace("\n", " ")[:30]
+        with step(f"shell {cmd_name}"):
+            runner.sh(s["cmd"], as_user=bool(s.get("run_as_user")))
 
 
 # --- Entry point -----------------------------------------------------------
