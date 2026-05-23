@@ -388,6 +388,14 @@ section + section { padding-top: 0; }
   flex-wrap: wrap;
   align-items: center;
 }
+.installer.hero-installer {
+  width: 100%;
+  max-width: 460px;
+}
+.hero-installer {
+  width: 100%;
+  max-width: 520px;
+}
 
 .scroll-hint {
   position: absolute;

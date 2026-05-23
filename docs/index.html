@@ -55,16 +55,17 @@
         <p class="hero-sub">
           Reproducible, sandboxed Lima VMs for the Claude Code / Codex era.
           No host filesystem mount. No cross-project bleed.
-          One <code>machine up &lt;project&gt;</code> away.
+          One machine per project.
         </p>
         <div class="hero-ctas">
-          <button class="btn btn-primary" data-copy="brew install katspaugh/machine/machine" data-label="Boot a machine">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l8 5-8 5z" fill="currentColor" stroke="none"/></svg>
-            <span class="btn-text">Boot a machine</span>
-          </button>
-          <a class="btn btn-secondary" href="#threat-model">
-            Read the threat model <span class="arrow">→</span>
-          </a>
+          <div class="installer hero-installer">
+            <div class="prompt">$</div>
+            <div class="cmd">brew install katspaugh/machine/machine</div>
+            <button class="copy-btn" data-copy="brew install katspaugh/machine/machine">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11V3a1 1 0 0 1 1-1h8"/></svg>
+              <span class="label">copy</span>
+            </button>
+          </div>
         </div>
       </div>
 
