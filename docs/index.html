@@ -27,7 +27,6 @@
       <a class="nav-cta" href="https://github.com/katspaugh/machine" rel="noreferrer">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
         <span>GitHub</span>
-        <span class="star">★&nbsp;1.2k</span>
       </a>
     </nav>
   </div>
@@ -50,7 +49,7 @@
           One <code>machine up &lt;project&gt;</code> away.
         </p>
         <div class="hero-ctas">
-          <button class="btn btn-primary" data-copy="curl -fsSL https://machine.sh/install | sh" data-label="Boot a machine">
+          <button class="btn btn-primary" data-copy="git clone git@github.com:katspaugh/machine.git ~/Sites/machine" data-label="Boot a machine">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l8 5-8 5z" fill="currentColor" stroke="none"/></svg>
             <span class="btn-text">Boot a machine</span>
           </button>
@@ -194,7 +193,7 @@
       </div>
       <div class="cap">
         <div class="k">tmpfs-only secrets</div>
-        <div class="v">Secrets from 1Password land in <code>/run/secrets</code>, a tmpfs that's wiped at shutdown.</div>
+        <div class="v">Secrets from 1Password land in <code>$XDG_RUNTIME_DIR/dev-secrets</code>, a tmpfs that's wiped at shutdown.</div>
       </div>
       <div class="cap">
         <div class="k">no host fs mount</div>
@@ -247,10 +246,10 @@
       <div class="col allow">
         <h4><span class="glyph">✓</span> what the VM can reach</h4>
         <ul>
-          <li><span class="ic">→</span><div>The project directory <em>you pointed it at</em><span class="sub">~/code/blog → /workspace/blog</span></div></li>
+          <li><span class="ic">→</span><div>Your project's git repo, cloned at boot<span class="sub">git@github.com:you/blog → ~/code/blog (inside the VM)</span></div></li>
           <li><span class="ic">→</span><div>Your forwarded SSH agent socket<span class="sub">$SSH_AUTH_SOCK · used, never copied</span></div></li>
-          <li><span class="ic">→</span><div>Secrets you declared in <code>provision.toml</code><span class="sub">/run/secrets/* (tmpfs)</span></div></li>
-          <li><span class="ic">→</span><div>Outbound network on declared ports<span class="sub">443, plus what you opened</span></div></li>
+          <li><span class="ic">→</span><div>1Password env(s) you declared in the repo's <code>.envrc</code><span class="sub">$XDG_RUNTIME_DIR/dev-secrets (tmpfs)</span></div></li>
+          <li><span class="ic">→</span><div>Outbound network, and a few forwarded localhost ports<span class="sub">3000-3010 · 4200 · 5173-5180 · 8080-8099</span></div></li>
           <li><span class="ic">→</span><div>Its own filesystem, fully<span class="sub">disposable. `machine rebuild` is cheap.</span></div></li>
         </ul>
       </div>
@@ -284,9 +283,9 @@
           <div class="profile-icon" style="color: var(--green)">▢</div>
           <div class="name">cypress</div>
         </div>
-        <p class="desc">Headless Chromium, X virtual framebuffer, a sane Node, and the test runner pre-installed.</p>
+        <p class="desc">Chrome (or Chromium on arm64), Xvfb, and the lib deps Cypress needs. Node lands from the base image.</p>
         <div class="chips">
-          <span class="chip">node 22</span><span class="chip">chromium</span><span class="chip">xvfb</span><span class="chip">cypress</span>
+          <span class="chip">chrome</span><span class="chip">chromium</span><span class="chip">xvfb</span><span class="chip">gtk · nss</span>
         </div>
       </article>
 
@@ -295,9 +294,9 @@
           <div class="profile-icon" style="color: var(--purple)">◬</div>
           <div class="name">supabase-fly</div>
         </div>
-        <p class="desc">The two CLIs you actually use when shipping a backend, with Docker and a Postgres client to match.</p>
+        <p class="desc">The two CLIs you actually use when shipping a backend. Docker comes from the base image.</p>
         <div class="chips">
-          <span class="chip">docker</span><span class="chip">flyctl</span><span class="chip">supabase</span><span class="chip">psql</span>
+          <span class="chip">supabase</span><span class="chip">flyctl</span>
         </div>
       </article>
 
@@ -306,9 +305,9 @@
           <div class="profile-icon" style="color: var(--cyan)">π</div>
           <div class="name">python</div>
         </div>
-        <p class="desc">uv, pyenv, the system build deps. Activated venv in <code>/workspace/.venv</code> on shell login.</p>
+        <p class="desc">Modern Python tooling on top of system python3: uv for envs and installs, ruff for lint/format, pyright for types.</p>
         <div class="chips">
-          <span class="chip">python 3.12</span><span class="chip">uv</span><span class="chip">pyenv</span><span class="chip">build-essential</span>
+          <span class="chip">uv</span><span class="chip">ruff</span><span class="chip">pyright</span>
         </div>
       </article>
 
@@ -317,9 +316,9 @@
           <div class="profile-icon" style="color: var(--pink)">◆</div>
           <div class="name">rust</div>
         </div>
-        <p class="desc">rustup with the stable + nightly toolchains, sccache for warm rebuilds, and a sensible <code>cargo</code> config.</p>
+        <p class="desc">rustup with the stable toolchain, installed system-wide so <code>cargo</code> is on PATH for every user.</p>
         <div class="chips">
-          <span class="chip">rustup</span><span class="chip">sccache</span><span class="chip">cargo-watch</span><span class="chip">mold</span>
+          <span class="chip">rustup</span><span class="chip">cargo</span><span class="chip">stable</span>
         </div>
       </article>
 
@@ -328,9 +327,9 @@
           <div class="profile-icon" style="color: var(--cyan)">go</div>
           <div class="name">go</div>
         </div>
-        <p class="desc">A Go toolchain you didn't have to install five times, plus golangci-lint and delve out of the box.</p>
+        <p class="desc">A pinned Go toolchain from go.dev, dropped into <code>/usr/local/go</code> with <code>go</code> and <code>gofmt</code> on PATH.</p>
         <div class="chips">
-          <span class="chip">go 1.23</span><span class="chip">golangci-lint</span><span class="chip">delve</span><span class="chip">air</span>
+          <span class="chip">go 1.23</span><span class="chip">gofmt</span>
         </div>
       </article>
 
@@ -470,12 +469,12 @@
   <div class="container reveal">
     <div class="final">
       <h2>Boot a machine.</h2>
-      <p>One line. Homebrew under the hood. Uninstalls cleanly when you're done.</p>
+      <p>Clone the repo, drop your projects into <code>projects.toml</code>, and run <code>machine up</code>.</p>
 
       <div class="installer" id="installer">
         <div class="prompt">$</div>
-        <div class="cmd" id="install-cmd">curl -fsSL https://machine.sh/install | sh</div>
-        <button class="copy-btn" id="install-copy" data-copy="curl -fsSL https://machine.sh/install | sh">
+        <div class="cmd" id="install-cmd">git clone git@github.com:katspaugh/machine.git ~/Sites/machine</div>
+        <button class="copy-btn" id="install-copy" data-copy="git clone git@github.com:katspaugh/machine.git ~/Sites/machine">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11V3a1 1 0 0 1 1-1h8"/></svg>
           <span class="label">copy</span>
         </button>
@@ -506,43 +505,43 @@
       <div class="foot-col">
         <h5>// docs</h5>
         <ul>
-          <li><a href="#">Quickstart</a></li>
-          <li><a href="#">Configuration</a></li>
-          <li><a href="#">CLI reference</a></li>
-          <li><a href="#">Troubleshooting</a></li>
+          <li><a href="https://github.com/katspaugh/machine#quickstart">Quickstart</a></li>
+          <li><a href="https://github.com/katspaugh/machine#setup">Configuration</a></li>
+          <li><a href="https://github.com/katspaugh/machine#commands">CLI reference</a></li>
+          <li><a href="https://github.com/katspaugh/machine#verifying">Verifying</a></li>
         </ul>
       </div>
       <div class="foot-col">
         <h5>// profiles</h5>
         <ul>
-          <li><a href="#">cypress</a></li>
-          <li><a href="#">supabase-fly</a></li>
-          <li><a href="#">python · rust · go</a></li>
-          <li><a href="#">Write your own</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/profiles/cypress.toml">cypress</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/profiles/supabase-fly.toml">supabase-fly</a></li>
+          <li><a href="https://github.com/katspaugh/machine/tree/main/profiles">python · rust · go</a></li>
+          <li><a href="https://github.com/katspaugh/machine#provisioning">Write your own</a></li>
         </ul>
       </div>
       <div class="foot-col">
         <h5>// safety</h5>
         <ul>
           <li><a href="#threat-model">Threat model</a></li>
-          <li><a href="#">Secrets (1Password)</a></li>
-          <li><a href="#">IDE integration</a></li>
-          <li><a href="#">License · MIT</a></li>
+          <li><a href="https://github.com/katspaugh/machine#1password-env-injection">Secrets (1Password)</a></li>
+          <li><a href="https://github.com/katspaugh/machine#ide-integration-vs-code-cursor-jetbrains-gateway">IDE integration</a></li>
+          <li><a href="https://github.com/katspaugh/machine#threat-model">Threat model · README</a></li>
         </ul>
       </div>
       <div class="foot-col">
         <h5>// elsewhere</h5>
         <ul>
           <li><a href="https://github.com/katspaugh/machine">GitHub</a></li>
-          <li><a href="#">Lima upstream</a></li>
-          <li><a href="#">Design system</a></li>
+          <li><a href="https://lima-vm.io/">Lima upstream</a></li>
+          <li><a href="https://github.com/katspaugh/machine#repository-layout">Repo layout</a></li>
         </ul>
       </div>
     </div>
 
     <div class="foot-bottom">
       <span>// no warranty. no telemetry. no machine-learning angle.</span>
-      <span>v0.6.3 · MIT · 2026</span>
+      <span>2026 · katspaugh/machine</span>
     </div>
   </div>
 </footer>

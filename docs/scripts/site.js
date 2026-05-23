@@ -113,7 +113,7 @@
       { type: 'wait', ms: 280 },
       { type: 'line', html: '' },
       { type: 'line', html: '<span class="ok">✓</span> <span class="cmd">vm</span> running  <span class="dim">·</span>  <span class="muted">host</span> <span class="user">machine-blog</span>  <span class="dim">·</span>  <span class="muted">port</span> 60010' },
-      { type: 'line', html: '<span class="ok">✓</span> <span class="cmd">agent</span> forwarded   <span class="dim">·</span>  /run/secrets/op.json (tmpfs)' },
+      { type: 'line', html: '<span class="ok">✓</span> <span class="cmd">agent</span> forwarded   <span class="dim">·</span>  $XDG_RUNTIME_DIR/dev-secrets (tmpfs)' },
       { type: 'wait', ms: 260 },
       { type: 'line', html: '' },
       { type: 'prompt' },
