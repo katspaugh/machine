@@ -183,5 +183,58 @@ class TestLoadDotenv(unittest.TestCase):
                 self.assertEqual(os.environ.get("SINGLE"), "one two")
 
 
+class TestVerifyReposReachable(unittest.TestCase):
+    def test_routes_message_through_renderer_raw(self):
+        """When a renderer is provided, the access-check message must go through
+        renderer.raw() rather than stdout."""
+        stub = mock.MagicMock()
+        fake_future = mock.MagicMock()
+        fake_future.result.return_value = ""  # no error
+
+        def fake_submit(fn, url):
+            return fake_future
+
+        fake_pool = mock.MagicMock()
+        fake_pool.__enter__ = mock.Mock(return_value=fake_pool)
+        fake_pool.__exit__ = mock.Mock(return_value=False)
+        fake_pool.submit.side_effect = fake_submit
+
+        with mock.patch("concurrent.futures.ThreadPoolExecutor", return_value=fake_pool), \
+             mock.patch("concurrent.futures.as_completed", return_value=[fake_future]):
+            with mock.patch("builtins.print") as mock_print:
+                m.verify_repos_reachable(["git@github.com:org/repo.git"], renderer=stub)
+
+        stub.raw.assert_called_once()
+        call_arg = stub.raw.call_args[0][0]
+        self.assertIn("checking access", call_arg)
+        mock_print.assert_not_called()
+
+    def test_falls_back_to_print_without_renderer(self):
+        """When no renderer is provided, the message falls back to print()."""
+        fake_future = mock.MagicMock()
+        fake_future.result.return_value = ""
+
+        fake_pool = mock.MagicMock()
+        fake_pool.__enter__ = mock.Mock(return_value=fake_pool)
+        fake_pool.__exit__ = mock.Mock(return_value=False)
+        fake_pool.submit.return_value = fake_future
+
+        with mock.patch("concurrent.futures.ThreadPoolExecutor", return_value=fake_pool), \
+             mock.patch("concurrent.futures.as_completed", return_value=[fake_future]):
+            with mock.patch("builtins.print") as mock_print:
+                m.verify_repos_reachable(["git@github.com:org/repo.git"])
+
+        mock_print.assert_called_once()
+        self.assertIn("checking access", mock_print.call_args[0][0])
+
+    def test_empty_urls_is_noop(self):
+        """Empty URL list returns immediately without printing or checking."""
+        stub = mock.MagicMock()
+        with mock.patch("builtins.print") as mock_print:
+            m.verify_repos_reachable([], renderer=stub)
+        stub.raw.assert_not_called()
+        mock_print.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

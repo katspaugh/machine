@@ -492,13 +492,17 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def verify_repos_reachable(urls: Sequence[str]) -> None:
+def verify_repos_reachable(urls: Sequence[str], renderer=None) -> None:
     """Run `git ls-remote` against each URL on the host before we touch the
     VM. Catches typos and missing access early, when the failure is cheap —
     otherwise the user discovers them only after a full provision (~minutes)."""
     if not urls:
         return
-    print(f"[machine] checking access to {len(urls)} repo(s)…")
+    msg = f"[machine] checking access to {len(urls)} repo(s)…"
+    if renderer is not None:
+        renderer.raw(msg)
+    else:
+        print(msg)
     env = {
         **os.environ,
         # Don't block on credential prompts for HTTPS URLs.
@@ -545,7 +549,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     with make_renderer(args, name) as r:
         s = r.step_start("preflight checks")
         try:
-            verify_repos_reachable(urls)
+            verify_repos_reachable(urls, renderer=r)
             r.step_end(s, "ok")
         except SystemExit:
             r.step_end(s, "fail")
@@ -571,25 +575,35 @@ def cmd_up(args: argparse.Namespace) -> int:
             lima_yaml = render_lima_yaml(name)
             rc = run_quiet(["limactl", "create", "--tty=false", f"--name={name}", str(lima_yaml)],
                            renderer=r)
-            r.step_end(s, "ok" if rc == 0 else "fail", str(rc) if rc else "")
-            if rc != 0:
+            if rc == 0:
+                r.step_end(s, "ok")
+            else:
+                r.step_end(s, "fail", str(rc))
                 return rc
 
         s = r.step_start(f"start VM '{name}'")
         rc = run_quiet(["limactl", "start", name], renderer=r)
-        r.step_end(s, "ok" if rc == 0 else "fail", str(rc) if rc else "")
-        if rc != 0:
+        if rc == 0:
+            r.step_end(s, "ok")
+        else:
+            r.step_end(s, "fail", str(rc))
             return rc
 
         s = r.step_start("upload provision config")
-        push_files_to_vm(name, profiles)
-        render_git_templates(name)
+        try:
+            push_files_to_vm(name, profiles)
+            render_git_templates(name)
+        except subprocess.CalledProcessError as e:
+            r.step_end(s, "fail", str(e.returncode))
+            raise
         r.step_end(s, "ok")
 
         s = r.step_start("provisioning")
         rc = r.consume(spawn_provisioner(name, profiles), depth=1)
-        r.step_end(s, "ok" if rc == 0 else "fail", str(rc) if rc else "")
-        if rc != 0:
+        if rc == 0:
+            r.step_end(s, "ok")
+        else:
+            r.step_end(s, "fail", str(rc))
             return rc
 
         rc = 0
@@ -610,51 +624,10 @@ def cmd_up(args: argparse.Namespace) -> int:
     return rc
 
 
-def clone_repo(vm: str, url: str) -> None:
-    """Clone one repo into ~/code/<basename>/ inside the VM. Idempotent.
-    (Preserved for callers outside cmd_up; cmd_up now uses clone_repo_quiet.)"""
-    repo_name = repo_basename(url)
-    rc = lima_shell(
-        vm,
-        ["bash", "-lc", f'[ -d "$HOME/code/{shlex.quote(repo_name)}/.git" ]'],
-        stdin=subprocess.DEVNULL,
-    ).returncode
-    if rc == 0:
-        print(f"[clone] {repo_name}: already present (skip)")
-        return
-    print(f"[clone] {repo_name} from {url}")
-    # known_hosts is pre-seeded with github.com keys at provision time, so we
-    # can use yes (strict). accept-new is the fallback for non-github hosts.
-    lima_shell(
-        vm,
-        ["env",
-         "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new -o UpdateHostKeys=no",
-         "bash", "-lc",
-         f'mkdir -p "$HOME/code" && cd "$HOME/code" && '
-         f'git clone --recurse-submodules -- {shlex.quote(url)}'],
-        stdin=subprocess.DEVNULL, check=True,
-    )
-    # JS deps if package.json present. Honor packageManager (yarn/pnpm), else npm.
-    deps_script = (
-        f'cd "$HOME/code/{shlex.quote(repo_name)}" 2>/dev/null || exit 0\n'
-        '[ -f package.json ] || exit 0\n'
-        'if grep -q \'"packageManager":[[:space:]]*"yarn\' package.json 2>/dev/null; then\n'
-        '  echo "[deps] yarn install"; yarn install\n'
-        'elif grep -q \'"packageManager":[[:space:]]*"pnpm\' package.json 2>/dev/null; then\n'
-        '  echo "[deps] pnpm install"; pnpm install\n'
-        'else\n'
-        '  echo "[deps] npm install"; npm install\n'
-        'fi'
-    )
-    rc = lima_shell(vm, ["bash", "-lc", deps_script], stdin=subprocess.DEVNULL).returncode
-    if rc != 0:
-        print(f"[deps] {repo_name}: install failed (continuing)")
-
-
 def clone_repo_quiet(vm: str, url: str, renderer: "log_view.Renderer") -> None:
     """Clone one repo into ~/code/<basename>/ inside the VM, reporting progress
     to the renderer as a nested step. Idempotent. Raises CalledProcessError on
-    clone failure (deps failures are non-fatal, consistent with clone_repo)."""
+    clone failure (deps failures are non-fatal)."""
     repo_name = repo_basename(url)
     cs = renderer.step_start(repo_name, depth=1)
 
