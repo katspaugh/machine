@@ -29,7 +29,7 @@ def _fixed_now(values: list[float]):
 def _fixed_wall(dt: datetime.datetime | None = None):
     """Return a wall_now callable that always returns the same datetime."""
     if dt is None:
-        dt = datetime.datetime(2026, 5, 23, 14, 22, 8, 500000)
+        dt = datetime.datetime(2026, 5, 23, 14, 22, 8, 500000, tzinfo=datetime.timezone.utc)
     return lambda: dt
 
 
@@ -62,6 +62,33 @@ class FakePopen:
 
     def wait(self) -> int:
         return self._returncode
+
+
+class _ErrAfterFirstIter:
+    """An iterator that yields one item then raises IOError."""
+
+    def __init__(self, first: str):
+        self._first = first
+        self._done = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if not self._done:
+            self._done = True
+            return self._first
+        raise IOError("simulated stream disconnect")
+
+
+class FakeErrPopen:
+    """A minimal Popen substitute whose stdout raises IOError after one line."""
+
+    def __init__(self, first_line: str):
+        self.stdout = _ErrAfterFirstIter(first_line)
+
+    def wait(self) -> int:
+        return 1
 
 
 # ---------------------------------------------------------------------------
@@ -180,18 +207,74 @@ class TestTtyMode(unittest.TestCase):
         r.step_end(parent, "ok")
 
         out = buf.getvalue()
-        # Child line should be indented by 2 spaces when drawn
-        # Look for the indented child in the output
-        self.assertIn("  ", out)  # at least some indentation
         self.assertIn("apt update", out)
         self.assertIn("provisioning", out)
 
-        # Find lines that mention apt update; at least one should have leading spaces
-        apt_segs = [seg for seg in out.split("\r\033[2K") if "apt update" in seg]
-        self.assertTrue(
-            any(seg.startswith("  ") for seg in apt_segs),
-            f"No indented 'apt update' line found. Segments: {apt_segs!r}",
+        # The finalized child line must be exactly "  ✓ apt update" (2-space indent).
+        # Split on the ANSI clear sequence to isolate individual drawn lines.
+        segments = out.split("\r\033[2K")
+        finalized_child = next(
+            (seg for seg in segments if "apt update" in seg and "✓" in seg),
+            None,
         )
+        self.assertIsNotNone(finalized_child, f"No finalized child line found in segments: {segments!r}")
+        # Strip a leading \r if present (from ANSI_CR before ANSI_CLEAR_LINE)
+        text = finalized_child.lstrip("\r")
+        self.assertTrue(
+            text.startswith("  ✓"),
+            f"Expected child line to start with '  ✓' (2 spaces), got: {text!r}",
+        )
+        self.assertFalse(
+            text.startswith("   ✓"),
+            f"Child line has too much indentation: {text!r}",
+        )
+
+    # 8. TTY fail dumps buffered raw lines below the step line
+    def test_tty_mode_fail_dumps_buffer(self):
+        buf = io.StringIO()
+        r = _make_tty(buf, times=[0.0, 0.0, 0.0, 1.0])
+        h = r.step_start("build")
+        r.raw("err line")
+        r.step_end(h, "fail", "exit 2")
+
+        out = buf.getvalue()
+        # Must contain the failure glyph
+        self.assertIn("✗", out)
+        # Must contain the detail
+        self.assertIn("exit 2", out)
+        # Must contain the buffered raw line (indented)
+        self.assertIn("err line", out)
+        # The raw line must appear after the finalized step line
+        fail_idx = out.index("✗")
+        raw_idx = out.index("err line")
+        self.assertGreater(raw_idx, fail_idx, "raw line should appear after the fail glyph")
+
+    # 9. TTY verbose mode streams raw lines while a step is active
+    def test_tty_mode_verbose_streams_raw(self):
+        buf = io.StringIO()
+        r = _make_tty(buf, verbose=True, times=[0.0] * 20)
+        h = r.step_start("build")
+        r.raw("hello")
+        r.step_end(h, "ok")
+
+        out = buf.getvalue()
+        self.assertIn("hello", out)
+        # hello must appear before the finalized ✓
+        hello_idx = out.index("hello")
+        ok_idx = out.index("✓")
+        self.assertLess(hello_idx, ok_idx, "raw 'hello' should appear before the step-end glyph")
+
+    # 10. TTY skip includes detail in finalized line
+    def test_tty_mode_skip_includes_detail(self):
+        buf = io.StringIO()
+        r = _make_tty(buf, times=[0.0] * 20)
+        h = r.step_start("install pkg")
+        r.step_end(h, "skip", "already done")
+
+        out = buf.getvalue()
+        self.assertIn("↷", out)
+        self.assertIn("install pkg", out)
+        self.assertIn("already done", out)
 
 
 class TestLogFile(unittest.TestCase):
@@ -303,11 +386,11 @@ class TestConsume(unittest.TestCase):
             self.assertIn("status=fail", lr_end)
             self.assertIn("unterminated", lr_end)
 
-    # 13. mismatched end closes most-recent open step
+    # 13. mismatched end closes most-recent open step with fixed fail+mismatch detail
     def test_consume_handles_mismatched_end(self):
         lines = [
             "[step:start] A\n",
-            "[step:end] B ok\n",  # name mismatch — should close A
+            "[step:end] B ok\n",  # name mismatch — should close A, NOT use B's status
         ]
         buf = io.StringIO()
         with _tmp_log() as log_path:
@@ -318,16 +401,73 @@ class TestConsume(unittest.TestCase):
 
             log_content = log_path.read_text()
 
-            # A should have been closed (with whatever status)
-            end_lines = [l for l in log_content.splitlines() if " end " in l]
-            a_end = next((l for l in end_lines if "name=A" in l or " A " in l or "A depth" in l or "A status" in l), None)
-            # More flexible: just check that an end record exists and step A was ended
-            # The end record payload contains the step name
+            # A must have been closed
             a_ended = any("A" in l and " end " in l for l in log_content.splitlines())
             self.assertTrue(a_ended, f"Step A should have been closed. Log:\n{log_content}")
 
-            # The mismatch warning should appear in the log (as a raw line)
+            # The innocent step A must be closed with status=fail (NOT ok from B)
+            end_lines = [l for l in log_content.splitlines() if " end " in l and "A" in l]
+            self.assertTrue(
+                any("status=fail" in l for l in end_lines),
+                f"Step A should be closed with status=fail. End lines: {end_lines}",
+            )
+
+            # The detail must contain "mismatch" (not B's original detail)
+            self.assertTrue(
+                any("mismatch" in l for l in end_lines),
+                f"Step A's detail should contain 'mismatch'. End lines: {end_lines}",
+            )
+
+            # The mismatch warning should also appear in the log as a raw line
             self.assertIn("mismatch", log_content)
+
+    # 14. greedy regex: step name with embedded space+ok is resolved correctly
+    def test_consume_greedy_end_name(self):
+        lines = [
+            "[step:start] check ok-results\n",
+            "[step:end] check ok-results ok\n",
+        ]
+        buf = io.StringIO()
+        with _tmp_log() as log_path:
+            r = _make_plain(buf, times=[0.0] * 20, log_path=log_path)
+            proc = FakePopen(lines, returncode=0)
+            r.consume(proc, depth=1)
+            r.close()
+
+            log_content = log_path.read_text()
+            end_lines = [l for l in log_content.splitlines() if " end " in l]
+            # The step "check ok-results" must be closed successfully — not "check"
+            named_end = next(
+                (l for l in end_lines if "check ok-results" in l),
+                None,
+            )
+            self.assertIsNotNone(
+                named_end,
+                f"Expected 'check ok-results' in an end record; got: {end_lines}",
+            )
+            self.assertIn("status=ok", named_end)
+
+    # 15. stream exception still finalizes open steps
+    def test_consume_finalizes_on_stream_exception(self):
+        buf = io.StringIO()
+        with _tmp_log() as log_path:
+            r = _make_plain(buf, times=[0.0] * 20, log_path=log_path)
+            proc = FakeErrPopen("[step:start] foo\n")
+            try:
+                r.consume(proc, depth=1)
+            except IOError:
+                pass  # exception may propagate — cleanup must still have run
+            r.close()
+
+            log_content = log_path.read_text()
+            end_lines = [l for l in log_content.splitlines() if " end " in l]
+            foo_end = next((l for l in end_lines if "foo" in l), None)
+            self.assertIsNotNone(foo_end, f"Step 'foo' must be finalized. Log:\n{log_content}")
+            self.assertIn("status=fail", foo_end)
+            self.assertIn("unterminated", foo_end)
+
+            # Renderer's internal stack must be empty
+            self.assertEqual(r._stack, [], "Renderer stack must be empty after cleanup")
 
 
 # ---------------------------------------------------------------------------

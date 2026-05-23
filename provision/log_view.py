@@ -6,16 +6,14 @@ Parses [step:start] / [step:end] markers from a subprocess's combined stdout+std
 """
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import datetime
 import io
 import re
 import subprocess
-import sys
 import time
 from pathlib import Path
-from typing import IO, Iterator, Literal
+from typing import IO, Literal
 
 # ---------------------------------------------------------------------------
 # Types
@@ -28,14 +26,13 @@ Status = Literal["ok", "skip", "fail"]
 # ---------------------------------------------------------------------------
 
 _START = re.compile(r"^\[step:start\] (?P<name>.+)$")
-_END = re.compile(r"^\[step:end\] (?P<name>.+?) (?P<status>ok|skip|fail)(?: (?P<detail>.*))?$")
+_END = re.compile(r"^\[step:end\] (?P<name>.+) (?P<status>ok|skip|fail)(?: (?P<detail>.*))?$")
 
 # ---------------------------------------------------------------------------
 # ANSI helpers
 # ---------------------------------------------------------------------------
 
 ANSI_CLEAR_LINE = "\033[2K"
-ANSI_CURSOR_UP = "\033[A"
 ANSI_CR = "\r"
 
 # ---------------------------------------------------------------------------
@@ -104,7 +101,7 @@ class Renderer:
         verbose: bool = False,
         log_path: Path | None = None,
         now: callable = time.monotonic,
-        wall_now: callable = datetime.datetime.now,
+        wall_now: callable = lambda: datetime.datetime.now(tz=datetime.timezone.utc),
     ) -> None:
         self._stream = stream
         self._tty = tty
@@ -198,50 +195,60 @@ class Renderer:
         # Per-consume stack: maps name -> handle for steps started in this consume call
         open_handles: list[StepHandle] = []
 
-        for raw_line in proc.stdout:
-            if isinstance(raw_line, bytes):
-                raw_line = raw_line.decode("utf-8", errors="replace")
-            line = raw_line.rstrip("\n").rstrip("\r")
+        try:
+            for raw_line in proc.stdout:
+                if isinstance(raw_line, bytes):
+                    raw_line = raw_line.decode("utf-8", errors="replace")
+                line = raw_line.rstrip("\n").rstrip("\r")
 
-            m = _START.match(line)
-            if m:
-                name = m.group("name")
-                h = self.step_start(name, depth=depth)
-                open_handles.append(h)
-                continue
+                m = _START.match(line)
+                if m:
+                    name = m.group("name")
+                    h = self.step_start(name, depth=depth)
+                    open_handles.append(h)
+                    continue
 
-            m = _END.match(line)
-            if m:
-                name = m.group("name")
-                status: Status = m.group("status")  # type: ignore[assignment]
-                detail = m.group("detail") or ""
+                m = _END.match(line)
+                if m:
+                    name = m.group("name")
+                    status: Status = m.group("status")  # type: ignore[assignment]
+                    detail = m.group("detail") or ""
 
-                # Find the most recent matching handle
-                matched: StepHandle | None = None
-                for h in reversed(open_handles):
-                    if h.name == name:
-                        matched = h
-                        break
+                    # Find the most recent matching handle
+                    matched: StepHandle | None = None
+                    for h in reversed(open_handles):
+                        if h.name == name:
+                            matched = h
+                            break
 
-                if matched is None:
-                    # Name mismatch — warn and close the most recent open handle
-                    if open_handles:
-                        matched = open_handles[-1]
-                        self.raw(f"[warn] [step:end] name mismatch: got {name!r}, expected {matched.name!r}")
-                    else:
-                        # No open handle at all — just warn
-                        self.raw(f"[warn] [step:end] {name!r} with no matching start")
+                    if matched is None:
+                        # Name mismatch — warn and close the most recent open handle
+                        if open_handles:
+                            innocent = open_handles[-1]
+                            self.raw(
+                                f"[warn] [step:end] name mismatch: got {name!r}, expected {innocent.name!r}"
+                            )
+                            open_handles.remove(innocent)
+                            self.step_end(
+                                innocent,
+                                "fail",
+                                f"name mismatch (expected {innocent.name!r}, got {name!r})",
+                            )
+                        else:
+                            # No open handle at all — just warn
+                            self.raw(f"[warn] [step:end] {name!r} with no matching start")
                         continue
 
-                open_handles.remove(matched)
-                self.step_end(matched, status, detail)
-                continue
+                    open_handles.remove(matched)
+                    self.step_end(matched, status, detail)
+                    continue
 
-            self.raw(line)
-
-        # Close any leftover open steps with fail/unterminated
-        for h in list(reversed(open_handles)):
-            self.step_end(h, "fail", "unterminated")
+                self.raw(line)
+        finally:
+            # Close any leftover open steps with fail/unterminated (runs even on exception)
+            while open_handles:
+                h = open_handles.pop()
+                self.step_end(h, "fail", "unterminated")
 
         return proc.wait()
 
