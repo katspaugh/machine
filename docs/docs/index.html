@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>The machinist's manual — machine</title>
+  <meta name="description" content="Reference manual for machine: install, configure, drive, and maintain isolated Lima VMs per project." />
+
+  <link rel="canonical" href="https://runmachine.dev/docs/" />
+  <meta property="og:url" content="https://runmachine.dev/docs/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="The machinist's manual — machine" />
+  <meta property="og:description" content="Reference manual for machine: install, configure, drive, and maintain isolated Lima VMs per project." />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="../styles/tokens.css" />
+  <link rel="stylesheet" href="../styles/components.css" />
+  <link rel="stylesheet" href="../styles/manual.css" />
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<header class="nav is-stuck" id="nav">
+  <div class="container nav-inner">
+    <a href="../" class="nav-brand" aria-label="machine home">
+      <span class="mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+      <span class="wordmark">machine</span>
+    </a>
+    <nav class="nav-links">
+      <a href="../#machine-room">Architecture</a>
+      <a href="../#profiles">Profiles</a>
+      <a class="nav-cta" href="https://github.com/katspaugh/machine" rel="noreferrer">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main class="container manual-wrap">
+
+  <!-- header -->
+  <div class="manual-head">
+    <p class="eyebrow">// the machinist's manual · v0.1</p>
+    <h1>One isolated Lima VM per project, from install to teardown.</h1>
+    <p class="lede">
+      <code>machine</code> drives <a href="https://lima-vm.io/">Lima</a> to give each GitHub project its own
+      reproducible sandboxed VM — Docker, Node, agent CLIs (Claude Code, Codex), GitHub CLI, signed git,
+      and opt-in tool profiles. No host filesystem is mounted; one project can't see another.
+      This manual is the reference for everything <code>machine</code> exposes.
+    </p>
+  </div>
+
+  <div class="manual-layout">
+
+    <!-- TOC -->
+    <aside class="manual-toc" aria-label="Table of contents">
+      <div class="toc-label">// contents</div>
+      <ol>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#prereqs">Prerequisites</a></li>
+        <li><a href="#setup">Setup &amp; projects.toml</a></li>
+        <li><a href="#quickstart">Quickstart</a></li>
+        <li><a href="#commands">CLI reference</a></li>
+        <li><a href="#tmux">Tmux inside the VM</a></li>
+        <li><a href="#ide">IDE integration</a></li>
+        <li><a href="#provisioning">Provisioning</a></li>
+        <li><a href="#profiles">Profiles</a></li>
+        <li><a href="#ssh-agent">SSH agent</a></li>
+        <li><a href="#secrets">1Password secrets</a></li>
+        <li><a href="#threat-model">Threat model</a></li>
+        <li><a href="#completion">Shell completion</a></li>
+        <li><a href="#knobs">Override knobs</a></li>
+        <li><a href="#verifying">Verifying</a></li>
+      </ol>
+    </aside>
+
+    <!-- content -->
+    <article class="manual-content">
+
+      <section id="install">
+        <h2><span class="num">01</span>Install</h2>
+        <p>The Homebrew tap is <a href="https://github.com/katspaugh/homebrew-machine">katspaugh/homebrew-machine</a>; each release is pinned to a tagged tarball plus its SHA256.</p>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>brew install katspaugh/machine/machine</code></pre>
+        <p>The formula pulls in <code>lima</code> and <code>python@3.12</code>. To verify the release before installing, read the <a href="https://github.com/katspaugh/homebrew-machine/blob/main/Formula/machine.rb">formula</a> or follow the runbook at <a href="https://github.com/katspaugh/machine/blob/main/docs/TAP.md">docs/TAP.md</a>.</p>
+
+        <h3>Dev mode (run from a clone)</h3>
+        <p>Skip Homebrew and run <code>machine</code> directly out of a checkout. Useful when you want to edit profiles or contribute back.</p>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>git clone git@github.com:katspaugh/machine.git ~/Sites/machine
+<span class="prompt">$ </span>~/Sites/machine/bin/machine doctor</code></pre>
+        <p>In dev mode <code>projects.toml</code> lives at the repo root. Under Homebrew it lives at <code>~/.config/machine/projects.toml</code>. Override the directory with <code>MACHINE_CONFIG_DIR</code>.</p>
+      </section>
+
+      <section id="prereqs">
+        <h2><span class="num">02</span>Prerequisites</h2>
+        <p>Three host-side things need to be in place before the first <code>machine up</code>:</p>
+        <ul>
+          <li>An SSH key on the host, served by an agent the VM can forward. Either the <strong>macOS Keychain</strong> (default — <code>ssh-add --apple-use-keychain ~/.ssh/id_ed25519</code>) or <strong>1Password</strong> (Settings → Developer → <em>Use the SSH agent</em>, then run with <code>MACHINE_USE_1PASSWORD=1</code>).</li>
+          <li>That key registered as a <strong>signing key</strong> on GitHub (Settings → SSH and GPG keys → New SSH key → Key type: <em>Signing</em>).</li>
+          <li>Host <code>git config --global user.name</code> and <code>user.email</code> set, or override via <code>GIT_NAME</code> / <code>GIT_EMAIL</code>.</li>
+        </ul>
+        <p>Run <code>machine doctor</code> to verify everything resolves before you create a VM.</p>
+      </section>
+
+      <section id="setup">
+        <h2><span class="num">03</span>Setup &amp; projects.toml</h2>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine init                  <span class="cmt"># writes ~/.config/machine/projects.toml from the bundled example</span>
+<span class="prompt">$ </span>$EDITOR ~/.config/machine/projects.toml</code></pre>
+        <p class="muted">In dev mode: <code>cp projects.toml.example projects.toml &amp;&amp; $EDITOR projects.toml</code> from the repo root.</p>
+
+        <h3>Example projects.toml</h3>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>projects.toml</span></div><code><span class="kw">default_profile</span> = <span class="str">"cypress"</span>           <span class="cmt"># applied when a project omits `profiles`</span>
+
+<span class="pink">[blog]</span>
+<span class="kw">repos</span> = [<span class="str">"git@github.com:you/blog.git"</span>]
+
+<span class="cmt"># Multi-repo: sibling-clones in one VM. The first is the "primary" —</span>
+<span class="cmt"># `machine ssh wallet` opens at its directory.</span>
+<span class="pink">[wallet]</span>
+<span class="kw">profiles</span> = [<span class="str">"cypress"</span>]
+<span class="kw">repos</span> = [
+  <span class="str">"git@github.com:you/safe-wallet-dev-env.git"</span>,
+  <span class="str">"git@github.com:you/safe-wallet-monorepo.git"</span>,
+  <span class="str">"git@github.com:you/safe-client-gateway.git"</span>,
+]
+
+<span class="cmt"># Multiple profiles stack.</span>
+<span class="pink">[playground]</span>
+<span class="kw">profiles</span> = [<span class="str">"cypress"</span>, <span class="str">"supabase-fly"</span>]
+<span class="kw">repos</span> = [<span class="str">"git@github.com:you/playground.git"</span>]</code></pre>
+
+        <p>Inside the VM, each repo lands at <code>~/code/&lt;repo-basename&gt;/</code>. JavaScript deps install automatically on first clone — yarn, pnpm, or npm, picked from <code>packageManager</code> in <code>package.json</code>. For environment variables, drop a <code>.env</code> in the project and Node's <code>dotenv</code> (or your framework) reads it directly. For secrets you'd rather not put on disk, see <a href="#secrets">§11</a>.</p>
+      </section>
+
+      <section id="quickstart">
+        <h2><span class="num">04</span>Quickstart</h2>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine up blog            <span class="cmt"># create + start + provision VM "blog", clone the repo</span>
+<span class="prompt">$ </span>machine ssh blog           <span class="cmt"># interactive shell, cwd = ~/code/blog</span></code></pre>
+        <p>Host browser → VM web app: ports <code>3000-3010</code>, <code>4200</code>, <code>5173-5180</code>, <code>8080-8099</code> are forwarded to <code>127.0.0.1</code> automatically. The first <code>up</code> is the slow one — subsequent boots are warm restarts.</p>
+        <div class="callout">
+          <span class="mark"><span>i</span></span>
+          <div>
+            <p>Claude Code comes pre-installed with the official marketplace and these plugins enabled: <code>frontend-design</code>, <code>superpowers</code>, <code>github</code>, <code>typescript-lsp</code>, <code>security-guidance</code>, <code>commit-commands</code>, <code>chrome-devtools-mcp</code>, <code>supabase</code>. Permission <code>defaultMode</code> is set to <code>auto</code>.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="commands">
+        <h2><span class="num">05</span>CLI reference</h2>
+        <p>Every command takes a project name (the TOML table key) where applicable. The CLI is idempotent — running <code>up</code> twice is safe and re-converges drift.</p>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>command</th><th>what it does</th></tr></thead>
+            <tbody>
+              <tr><td>machine list</td><td class="desc">List projects defined in <code>projects.toml</code>.</td></tr>
+              <tr><td>machine ps</td><td class="desc">List projects with live VM status.</td></tr>
+              <tr><td>machine doctor</td><td class="desc">Preflight host checks: lima, git config, SSH agent, signing key, <code>op</code> CLI.</td></tr>
+              <tr><td>machine validate</td><td class="desc">Schema-check <code>projects.toml</code> and referenced profiles (no VM touched).</td></tr>
+              <tr><td>machine init</td><td class="desc">Write a starter <code>projects.toml</code> to <code>~/.config/machine/</code>.</td></tr>
+              <tr><td>machine up &lt;p&gt;</td><td class="desc">Create if needed, start, provision (base + profiles), clone the repo(s). Idempotent. <code>--dry-run</code> prints steps without executing.</td></tr>
+              <tr><td>machine down &lt;p&gt;</td><td class="desc">Stop the VM (preserves disk).</td></tr>
+              <tr><td>machine ssh &lt;p&gt;</td><td class="desc">Interactive shell, cwd = <code>~/code/&lt;primary-repo&gt;</code>. Attaches to a per-project tmux session — see <a href="#tmux">§06</a>.</td></tr>
+              <tr><td>machine run &lt;p&gt; &lt;cmd&gt;…</td><td class="desc">Non-interactive command in the VM.</td></tr>
+              <tr><td>machine secrets &lt;p&gt; [&lt;repo&gt;]</td><td class="desc">Render 1Password Environment(s) into VM tmpfs. See <a href="#secrets">§11</a>.</td></tr>
+              <tr><td>machine secrets --clear &lt;p&gt; [&lt;repo&gt;]</td><td class="desc">Wipe rendered secrets from the VM's tmpfs.</td></tr>
+              <tr><td>machine status &lt;p&gt;</td><td class="desc"><code>limactl list</code> for that VM.</td></tr>
+              <tr><td>machine update &lt;p&gt;</td><td class="desc">Refresh in-place: <code>apt upgrade</code>, npm globals, claude installer. <code>--reprovision</code> also re-applies TOML configs.</td></tr>
+              <tr><td>machine rebuild &lt;p&gt;</td><td class="desc"><strong>Destroys</strong> the VM and rebuilds from scratch (the reproducibility test). <code>-y</code> skips confirmation.</td></tr>
+              <tr><td>machine destroy &lt;p&gt;</td><td class="desc">Delete the VM. <code>-y</code> skips confirmation.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="tmux">
+        <h2><span class="num">06</span>Tmux inside the VM</h2>
+        <p>
+          <code>machine ssh &lt;project&gt;</code> attaches to a per-project tmux session, created on first connect, named after the project,
+          starting at the primary repo. New "tabs" need to be created from inside the VM rather than via the host terminal's Cmd+T —
+          the host shortcut would open a tab on the <em>host</em> at the host's cwd, not in the VM.
+        </p>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>keys</th><th>what</th></tr></thead>
+            <tbody>
+              <tr><td>Ctrl-b c</td><td class="desc">New window ("tab") — starts in the current pane's VM cwd.</td></tr>
+              <tr><td>Ctrl-b n / p</td><td class="desc">Next / previous window.</td></tr>
+              <tr><td>Ctrl-b " / %</td><td class="desc">Horizontal / vertical split — also inherits the pane cwd.</td></tr>
+              <tr><td>Ctrl-b d</td><td class="desc">Detach (session keeps running; reattach with <code>machine ssh &lt;project&gt;</code>).</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The session survives detach, so closing the host terminal and reconnecting drops you back into the same windows. For a plain non-tmux shell instead, use <code>machine run &lt;project&gt; bash -l</code> or <code>limactl shell &lt;project&gt;</code> directly.</p>
+      </section>
+
+      <section id="ide">
+        <h2><span class="num">07</span>IDE integration</h2>
+        <p><code>machine up &lt;project&gt;</code> (and <code>rebuild</code>/<code>destroy</code>) maintains a sentinel-delimited block in <code>~/.ssh/config</code>, so any IDE that reads SSH config sees the VM directly:</p>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>~/.ssh/config</span></div><code><span class="kw">Host</span> machine-&lt;project&gt;
+    <span class="kw">HostName</span> 127.0.0.1
+    <span class="kw">Port</span> &lt;lima-port&gt;
+    <span class="kw">User</span> &lt;vm-user&gt;
+    <span class="kw">IdentityFile</span> &lt;lima-key&gt;
+    <span class="kw">IdentitiesOnly</span> yes
+    <span class="kw">StrictHostKeyChecking</span> no
+    <span class="kw">UserKnownHostsFile</span> /dev/null
+    <span class="kw">ForwardAgent</span> yes</code></pre>
+        <p>In VS Code → Remote-SSH: open the host picker, pick <code>machine-&lt;project&gt;</code>, then open <code>/home/&lt;vm-user&gt;/code/&lt;repo&gt;</code>. Same flow in Cursor and JetBrains Gateway. <code>ForwardAgent yes</code> means commit signing and <code>gh</code> work in the IDE's integrated terminal just like in <code>machine ssh</code>.</p>
+        <p><code>machine doctor</code> reports drift — missing block, stale ports, orphan entries, loose permissions. The block is rewritten end-to-end on every <code>up</code>/<code>rebuild</code>/<code>destroy</code>, so running <code>machine up &lt;any-project&gt;</code> is the recovery path if it ever goes out of sync.</p>
+      </section>
+
+      <section id="provisioning">
+        <h2><span class="num">08</span>Provisioning</h2>
+        <p>The provisioning system is declarative: tools are listed in TOML, and a small Python dispatcher applies them inside the VM.</p>
+        <ul>
+          <li><code>provision.toml</code> — the base config, always applied. Lists apt packages, third-party apt repos (Docker, GitHub CLI, NodeSource for Node), <code>curl|bash</code> installers (Claude Code), npm globals (Codex, TypeScript), <code>/etc/profile.d</code> snippets, Claude marketplace + plugins.</li>
+          <li><code>profiles/&lt;name&gt;.toml</code> — opt-in add-ons (see <a href="#profiles">§09</a>).</li>
+          <li><code>provision/run.py</code> — reads the base + selected profiles, merges, and runs them in fixed step order. Idempotent via sentinels under <code>/var/lib/dev-vm/provisioned/</code>.</li>
+        </ul>
+        <p>Adding a tool that fits a typed section (apt package, npm global, apt repo, <code>curl|bash</code> installer, GitHub release tarball, Claude plugin) is one line of TOML. The <code>[[shell]]</code> section is an escape hatch for genuinely shell-shaped one-offs (writing config files, <code>chsh</code>, etc.). Schema reference is in the comments at the top of <code>provision.toml</code>.</p>
+
+        <h3>What happens on <code>machine up &lt;p&gt;</code></h3>
+        <ul>
+          <li>If the VM doesn't exist, <code>limactl create --name=&lt;p&gt;</code> against <code>lima.yaml</code>, then <code>limactl start &lt;p&gt;</code>.</li>
+          <li>Push <code>provision.toml</code>, the project's <code>profiles/&lt;name&gt;.toml</code> files, <code>provision/run.py</code>, and the <code>files/</code> tree into <code>/opt/dev-vm/</code> on the VM.</li>
+          <li>Render <code>files/git/*.tpl</code> on the host (substituting your name, email, and SSH signing pubkey), and push the results to the same location.</li>
+          <li>Run <code>sudo python3 /opt/dev-vm/provision/run.py provision.toml &lt;profiles…&gt;</code> inside the VM.</li>
+          <li>Clone the listed <code>repos</code> into <code>~/code/&lt;basename&gt;/</code> in parallel.</li>
+        </ul>
+        <p>GitHub auth and commit signing both use the forwarded SSH agent — private keys never leave the host; the VM only sees signatures and <code>ssh -A</code> proxied auth.</p>
+      </section>
+
+      <section id="profiles">
+        <h2><span class="num">09</span>Profiles</h2>
+        <p>Profiles stack. Pick a base, layer extras in <code>projects.toml</code>, or write your own. Ship with <code>machine</code>:</p>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>profile</th><th>what's in it</th></tr></thead>
+            <tbody>
+              <tr><td>cypress</td><td class="desc">Cypress runtime libs + Chrome (amd64) or Chromium (arm64), Xvfb, GTK/NSS dependencies.</td></tr>
+              <tr><td>supabase-fly</td><td class="desc">Supabase CLI (release tarball) + flyctl (<code>curl|bash</code>). Docker comes from the base image.</td></tr>
+              <tr><td>python</td><td class="desc"><code>uv</code> (package + project manager) + <code>ruff</code> + <code>pyright</code>.</td></tr>
+              <tr><td>rust</td><td class="desc"><code>rustup</code> with the stable toolchain (minimal profile).</td></tr>
+              <tr><td>go</td><td class="desc">Pinned Go from go.dev. Edit the version in <code>profiles/go.toml</code> to bump.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>A profile is one TOML file. Copy <a href="https://github.com/katspaugh/machine/tree/main/profiles">an existing one</a>, change three lines, commit it.</p>
+      </section>
+
+      <section id="ssh-agent">
+        <h2><span class="num">10</span>SSH agent</h2>
+        <p>By default the VM forwards whatever the host's <code>SSH_AUTH_SOCK</code> points at — on macOS that's launchd's agent, which serves keys you loaded with <code>ssh-add --apple-use-keychain</code> (passphrase cached in Keychain).</p>
+        <p>To use 1Password's agent instead — keys never touch <code>~/.ssh</code>, every signature prompts for Touch ID:</p>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>brew install 1password-cli                    <span class="cmt"># only needed for OP_SIGNING_KEY_REF</span>
+<span class="cmt"># In 1Password: Settings → Developer → "Use the SSH agent"</span>
+<span class="prompt">$ </span><span class="kw">export</span> MACHINE_USE_1PASSWORD=<span class="str">1</span>                <span class="cmt"># for the current shell, or your shell rc</span>
+<span class="prompt">$ </span>machine up &lt;project&gt;</code></pre>
+
+        <h3>Resolution order for the git signing pubkey</h3>
+        <ol>
+          <li><code>GIT_SIGNING_KEY=&lt;literal pubkey string&gt;</code></li>
+          <li><code>OP_SIGNING_KEY_REF=op://Vault/Item/public_key</code> — fetched via <code>op read</code> (requires <code>op</code> CLI; triggers Touch ID once at <code>up</code> time).</li>
+          <li><code>GIT_SIGNING_PUBKEY_FILE=&lt;path&gt;</code></li>
+          <li>Host <code>git config --global user.signingkey</code> — literal pubkey or path to a <code>.pub</code> file (default; whatever you sign host commits with).</li>
+        </ol>
+      </section>
+
+      <section id="secrets">
+        <h2><span class="num">11</span>1Password secrets</h2>
+        <p>For project secrets you don't want to write to disk, drop a <code>.envrc</code> in the repo referencing a 1Password <a href="https://developer.1password.com/docs/cli/environments/">Environment</a> ID:</p>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span><span class="kw">echo</span> <span class="str">'use op_env &lt;environment-id&gt;'</span> &gt; .envrc
+<span class="prompt">$ </span>direnv allow</code></pre>
+        <p>Then on the host:</p>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine secrets &lt;project&gt;               <span class="cmt"># syncs every .envrc using `use op_env` in that VM</span>
+<span class="prompt">$ </span>machine secrets &lt;project&gt; &lt;repo&gt;        <span class="cmt"># narrow to one repo within a multi-repo project</span></code></pre>
+        <p>
+          <code>machine secrets</code> reads the Environment from 1Password (Touch ID), pipes the rendered <code>KEY=value</code> pairs into the VM,
+          and writes them to <code>$XDG_RUNTIME_DIR/dev-secrets/&lt;env-id&gt;.env</code> — tmpfs, mode 600, gone on reboot. The <code>op_env</code> direnv
+          helper loads that cache when you <code>cd</code> into the project. No host-side disk path is involved.
+        </p>
+        <p class="muted">Create an Environment in 1Password desktop: Developer → Environments → New. Copy its ID via Manage environment → Copy ID.</p>
+      </section>
+
+      <section id="threat-model">
+        <h2><span class="num">12</span>Threat model</h2>
+        <p>No host filesystem is mounted. Each project gets its own VM, so a compromise of one project can't reach another's code or env. The host exposes two narrow channels:</p>
+        <ul>
+          <li>The forwarded <strong>SSH agent</strong> — auth and signing only; private keys stay on the host; the VM can only request signatures while it's running.</li>
+          <li><strong><code>machine secrets</code></strong> — pushes rendered 1Password Environments into tmpfs (no disk persistence).</li>
+        </ul>
+        <p>A fully compromised VM cannot read the 1Password vault — only the secrets a repo explicitly rendered, and only while that tmpfs lives. For a visual breakdown of what the VM can and cannot reach, see <a href="../#threat-model">Ghost in the machine</a> on the landing page.</p>
+        <div class="callout warn">
+          <span class="mark"><span>!</span></span>
+          <div>
+            <p>The VM still reaches the network. <code>npm install</code> can exfiltrate anything inside its blast radius — your project's source, anything you typed into its shell, any secret <em>currently rendered</em> in tmpfs. The point of the VM is that the radius stops at the VM boundary, not that there is no radius.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="completion">
+        <h2><span class="num">13</span>Shell completion</h2>
+        <p>Bash, zsh, and fish completions ship under <code>completions/</code>:</p>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="cmt"># bash</span>
+<span class="prompt">$ </span><span class="kw">echo</span> <span class="str">'source /path/to/machine/completions/machine.bash'</span> &gt;&gt; ~/.bashrc
+
+<span class="cmt"># zsh (somewhere in $fpath)</span>
+<span class="prompt">$ </span><span class="kw">ln</span> -s <span class="str">"$PWD/completions/_machine"</span> /usr/local/share/zsh/site-functions/_machine
+
+<span class="cmt"># fish</span>
+<span class="prompt">$ </span><span class="kw">ln</span> -s <span class="str">"$PWD/completions/machine.fish"</span> ~/.config/fish/completions/machine.fish</code></pre>
+      </section>
+
+      <section id="knobs">
+        <h2><span class="num">14</span>Override knobs</h2>
+        <p>Every override is an environment variable read at <code>up</code> time. Set them in your shell rc, your direnv, or inline.</p>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>env var</th><th>default / purpose</th></tr></thead>
+            <tbody>
+              <tr><td>GIT_NAME / GIT_EMAIL</td><td class="desc">From host <code>git config --global</code>.</td></tr>
+              <tr><td>GIT_SIGNING_PUBKEY_FILE</td><td class="desc">Path to a <code>.pub</code> file (overrides host <code>user.signingkey</code>).</td></tr>
+              <tr><td>GIT_SIGNING_KEY</td><td class="desc">Literal pubkey string (overrides everything).</td></tr>
+              <tr><td>OP_SIGNING_KEY_REF</td><td class="desc">1Password secret reference for the signing pubkey, e.g. <code>op://Personal/SSH/public key</code>.</td></tr>
+              <tr><td>MACHINE_USE_1PASSWORD</td><td class="desc">Set <code>=1</code> to forward 1Password's SSH agent instead of macOS Keychain.</td></tr>
+              <tr><td>ONEPASS_SOCK</td><td class="desc"><code>~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock</code></td></tr>
+              <tr><td>PROJECTS_FILE</td><td class="desc"><code>&lt;repo&gt;/projects.toml</code> in dev mode; <code>~/.config/machine/projects.toml</code> under Homebrew.</td></tr>
+              <tr><td>MACHINE_CONFIG_DIR</td><td class="desc">Overrides the config-directory location (<code>~/.config/machine</code> by default).</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="verifying">
+        <h2><span class="num">15</span>Verifying</h2>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>bash tests/run-all.sh &lt;project&gt;     <span class="cmt"># full VM smokes (lint + boot + docker + node + git-sign + …)</span>
+<span class="prompt">$ </span>bash tests/unit.sh                  <span class="cmt"># host-side Python unit tests (no VM)</span>
+<span class="prompt">$ </span>machine validate                    <span class="cmt"># schema-check the TOMLs</span>
+<span class="prompt">$ </span>machine doctor                      <span class="cmt"># preflight host environment</span></code></pre>
+        <p><code>tests/run-all.sh</code> requires a provisioned VM (set <code>MACHINE_NAME=&lt;project&gt;</code> or pass the project as arg 1). <code>tests/unit.sh</code> runs offline.</p>
+      </section>
+
+      <div class="manual-end">
+        <span class="meta">// end of manual · v0.1 · katspaugh/machine</span>
+        <a class="btn btn-secondary" href="../">← Back to runmachine.dev</a>
+      </div>
+
+    </article>
+  </div>
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="container">
+    <div class="foot-grid">
+      <div>
+        <div class="nav-brand" style="margin-bottom: var(--s-4)">
+          <span class="mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+          <span class="wordmark">machine</span>
+        </div>
+        <p class="foot-tag">Built by people who got tired of cleaning up after their machines.</p>
+      </div>
+      <div class="foot-col">
+        <h5>// docs</h5>
+        <ul>
+          <li><a href="#install">Install</a></li>
+          <li><a href="#quickstart">Quickstart</a></li>
+          <li><a href="#setup">Configuration</a></li>
+          <li><a href="#commands">CLI reference</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h5>// profiles</h5>
+        <ul>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/profiles/cypress.toml">cypress</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/profiles/supabase-fly.toml">supabase-fly</a></li>
+          <li><a href="https://github.com/katspaugh/machine/tree/main/profiles">python · rust · go</a></li>
+          <li><a href="#provisioning">Write your own</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h5>// safety</h5>
+        <ul>
+          <li><a href="#threat-model">Threat model</a></li>
+          <li><a href="#secrets">Secrets (1Password)</a></li>
+          <li><a href="#ide">IDE integration</a></li>
+          <li><a href="#ssh-agent">SSH agent</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h5>// elsewhere</h5>
+        <ul>
+          <li><a href="https://github.com/katspaugh/machine">GitHub</a></li>
+          <li><a href="https://github.com/katspaugh/homebrew-machine">Homebrew tap</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/docs/TAP.md">Release / verify</a></li>
+          <li><a href="https://lima-vm.io/">Lima upstream</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="foot-bottom">
+      <span>// no warranty. no telemetry. no machine-learning angle.</span>
+      <span>2026 · katspaugh/machine</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // TOC: highlight the current section as you scroll
+  (function () {
+    var links = Array.from(document.querySelectorAll('.manual-toc a'));
+    var byId = {};
+    links.forEach(function (a) {
+      var id = a.getAttribute('href').slice(1);
+      byId[id] = a;
+    });
+    var sections = Array.from(document.querySelectorAll('.manual-content section[id]'));
+    if (!('IntersectionObserver' in window) || !sections.length) return;
+
+    var current = null;
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          if (current) current.classList.remove('is-current');
+          var a = byId[e.target.id];
+          if (a) { a.classList.add('is-current'); current = a; }
+        }
+      });
+    }, { rootMargin: '-30% 0px -60% 0px', threshold: 0 });
+
+    sections.forEach(function (s) { io.observe(s); });
+  })();
+</script>
+
+</body>
+</html>
