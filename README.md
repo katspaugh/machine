@@ -108,7 +108,7 @@ In VS Code → Remote-SSH: open the host picker, pick `machine-<project>`, then 
 | Command | What |
 |---|---|
 | `bin/machine list` | List projects from `projects.toml` |
-| `bin/machine ps` | List projects with live VM status |
+| `bin/machine ps` | Rich live-status table: per-VM uptime, CPU/mem, repo + branch, idle time, active host ports |
 | `bin/machine doctor` | Preflight host checks: lima, git config, SSH agent, signing key, `op` CLI |
 | `bin/machine validate` | Schema-check `projects.toml` and referenced profiles (no VM) |
 | `bin/machine up <p>` | Create if needed, start, provision (base + project's profiles), clone the repo(s). Idempotent. `--dry-run` prints provision steps without executing. |

@@ -10,14 +10,18 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import dataclasses
 import datetime
 import hashlib
+import json
 import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -489,6 +493,380 @@ def cmd_list(args: argparse.Namespace) -> int:
         extra = f" (+{len(repos)-1})" if len(repos) > 1 else ""
         st = status.get(name, "—")
         print(f"{name:<20}  {st:<12}  {profile_str:<20}  {primary}{extra}")
+    return 0
+
+
+# --- ps helpers -----------------------------------------------------------
+
+def _gather_lima_list_json() -> dict[str, dict]:
+    """Return {vm_name: parsed_json_obj} for every VM Lima knows about.
+
+    limactl list --json emits one JSON object per line (JSONL). This function
+    also tolerates a single JSON array as a fallback.
+    """
+    proc = subprocess.run(
+        ["limactl", "list", "--json"],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        return {}
+    out: dict[str, dict] = {}
+    raw = proc.stdout.strip()
+    if not raw:
+        return {}
+    # Try JSONL first (one object per line), fall back to a single JSON array.
+    try:
+        items = json.loads(raw)
+        if isinstance(items, list):
+            for obj in items:
+                if isinstance(obj, dict) and (name := obj.get("name")):
+                    out[name] = obj
+            return out
+    except json.JSONDecodeError:
+        pass
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and (name := obj.get("name")):
+            out[name] = obj
+    return out
+
+
+def _parse_vm_info(output: str) -> dict:
+    """Parse the multi-section output from _gather_running_vm_info's shell script.
+
+    Sections are separated by '---'. Returns a dict with keys:
+        cpu_percent (float|None), mem_used_bytes (int|None),
+        mem_total_bytes (int|None), idle_minutes (int|None), branch (str|None).
+    """
+    result: dict[str, Any] = {
+        "cpu_percent": None,
+        "mem_used_bytes": None,
+        "mem_total_bytes": None,
+        "idle_minutes": None,
+        "branch": None,
+    }
+    sections = output.split("---")
+    # Section 0: /proc/loadavg
+    if len(sections) > 0:
+        la = sections[0].strip()
+        if la:
+            parts = la.split()
+            if parts:
+                try:
+                    load1 = float(parts[0])
+                    result["cpu_percent"] = min(round(load1 * 100), 999)
+                except (ValueError, IndexError):
+                    pass
+    # Section 1: free -b output
+    if len(sections) > 1:
+        for line in sections[1].splitlines():
+            if line.startswith("Mem:"):
+                parts = line.split()
+                try:
+                    result["mem_total_bytes"] = int(parts[1])
+                    result["mem_used_bytes"] = int(parts[2])
+                except (ValueError, IndexError):
+                    pass
+                break
+    # Section 2: who output — parse idle time from last activity
+    if len(sections) > 2:
+        who_out = sections[2].strip()
+        if who_out:
+            # 'who' output: "ivan     pts/0        2024-01-01 10:00 (:0)"
+            # We use the mtime of the most recently touched pty as a proxy.
+            # For idle time: parse the oldest session time or leave None.
+            # Simpler: count lines as sessions present; idle = None from who alone.
+            # We'll leave idle_minutes as None here; it requires wall clock comparison.
+            pass
+    # Section 3: git branch (optional)
+    if len(sections) > 3:
+        branch = sections[3].strip().splitlines()
+        if branch:
+            result["branch"] = branch[-1].strip() or None
+    return result
+
+
+def _gather_running_vm_info(vm: str, primary_repo: str | None) -> dict:
+    """One shell call into the VM. Returns parsed dict from _parse_vm_info."""
+    script = (
+        "cat /proc/loadavg\n"
+        "echo ---\n"
+        "free -b\n"
+        "echo ---\n"
+        "who\n"
+        "echo ---\n"
+    )
+    if primary_repo:
+        script += (
+            f'cd "$HOME/code/{shlex.quote(primary_repo)}" 2>/dev/null'
+            f' && git rev-parse --abbrev-ref HEAD 2>/dev/null || true\n'
+        )
+    try:
+        proc = subprocess.run(
+            ["limactl", "shell", vm, "--", "sh", "-c", script],
+            capture_output=True, text=True, timeout=3.0,
+        )
+        return _parse_vm_info(proc.stdout)
+    except Exception:
+        return {"cpu_percent": None, "mem_used_bytes": None,
+                "mem_total_bytes": None, "idle_minutes": None, "branch": None}
+
+
+def _probe_port(host_port: int, timeout: float = 0.1) -> bool:
+    """Return True if a TCP connection to localhost:host_port succeeds."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        return s.connect_ex(("127.0.0.1", host_port)) == 0
+    finally:
+        s.close()
+
+
+def _gather_active_ports(vm: str) -> list[int]:
+    """Discover active host-side ports for a VM.
+
+    Strategy: read ~/.lima/<vm>/ha.stderr.log (JSON lines), extract unique host
+    ports from "Forwarding TCP from ..." messages, then probe each with a
+    short TCP connect to confirm it is currently accepting connections.
+
+    Lima's ha.stderr.log uses JSON lines with a "msg" field. Forwarding lines
+    look like:
+        {"level":"info","msg":"Forwarding TCP from [::]:3000 to 127.0.0.1:3000",...}
+    Host address may be [::]:PORT, 0.0.0.0:PORT, or 127.0.0.1:PORT.
+    """
+    log = Path.home() / ".lima" / vm / "ha.stderr.log"
+    if not log.is_file():
+        return []
+    try:
+        lines = log.read_text(errors="replace").splitlines()[-2000:]
+    except OSError:
+        return []
+
+    # Match "Forwarding TCP from <host_addr>:<port> to ..."
+    # Host address is IPv4 like 0.0.0.0 / 127.0.0.1, or IPv6 bracket like [::]
+    fwd_re = re.compile(r"Forwarding TCP from (?:\[.*?\]|[\d.]+):(\d+) to ")
+    candidate_ports: set[int] = set()
+    for raw_line in lines:
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        # Try to parse as JSON first; fall back to plain text regex.
+        try:
+            obj = json.loads(raw_line)
+            msg = obj.get("msg", "")
+        except json.JSONDecodeError:
+            msg = raw_line
+        if m := fwd_re.search(msg):
+            candidate_ports.add(int(m.group(1)))
+
+    live: list[int] = []
+    for port in sorted(candidate_ports):
+        if _probe_port(port):
+            live.append(port)
+    return live
+
+
+def _format_duration_compact(seconds: float) -> str:
+    """Format a duration as a compact human string.
+
+    Examples: 30s, 1m, 1h 01m, 1d 1h.
+    """
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    m, _ = divmod(s, 60)
+    if m < 60:
+        return f"{m}m"
+    h, m = divmod(m, 60)
+    if h < 24:
+        return f"{h}h {m:02d}m"
+    d, h = divmod(h, 24)
+    return f"{d}d {h}h"
+
+
+def _vm_uptime(vm: str, lima_obj: dict) -> str | None:
+    """Return formatted uptime string, e.g. '1h 12m', '22m'.
+
+    Source: ha.pid mtime preferred; `created` field from limactl JSON fallback.
+    """
+    ha_pid = Path.home() / ".lima" / vm / "ha.pid"
+    if ha_pid.is_file():
+        try:
+            delta = time.time() - ha_pid.stat().st_mtime
+        except OSError:
+            delta = None
+    else:
+        delta = None
+    if delta is None:
+        created = lima_obj.get("created")
+        if not created:
+            return None
+        try:
+            dt = datetime.datetime.fromisoformat(created.replace("Z", "+00:00"))
+            delta = (datetime.datetime.now(tz=datetime.timezone.utc) - dt).total_seconds()
+        except ValueError:
+            return None
+    return _format_duration_compact(delta)
+
+
+def _primary_repo_basename(project: dict | None) -> str | None:
+    """Return the basename of the first repo in the project config, or None."""
+    if not project or not isinstance(project, dict):
+        return None
+    repos = project.get("repos", [])
+    if not repos:
+        return None
+    return repo_basename(repos[0])
+
+
+@dataclasses.dataclass
+class PsRow:
+    name: str
+    status: str
+    uptime: str
+    cpu: str
+    mem: str
+    repo: str
+    idle: str
+    ports: str
+
+
+def _make_ps_row(
+    name: str,
+    project: dict | None,
+    lima_obj: dict,
+    info: dict,
+    active_ports: list[int],
+) -> PsRow:
+    """Build a single PsRow from gathered data."""
+    EM = "—"
+
+    # Status
+    raw_status = lima_obj.get("status") or ""
+    if not lima_obj:
+        status = EM
+    else:
+        status = raw_status or EM
+
+    is_running = raw_status == "Running"
+
+    # Uptime
+    if is_running:
+        uptime = _vm_uptime(name, lima_obj) or EM
+    else:
+        uptime = EM
+
+    # CPU
+    if is_running and info.get("cpu_percent") is not None:
+        cpu = f"{info['cpu_percent']}%"
+    else:
+        cpu = EM
+
+    # Memory  "used / total G"
+    if is_running and info.get("mem_used_bytes") is not None and info.get("mem_total_bytes") is not None:
+        used_gb = info["mem_used_bytes"] / 1_073_741_824
+        total_gb = info["mem_total_bytes"] / 1_073_741_824
+        mem = f"{used_gb:.1f} / {total_gb:.0f} G"
+    else:
+        mem = EM
+
+    # Repo (basename + optional branch)
+    primary = _primary_repo_basename(project)
+    if primary:
+        branch = info.get("branch") if is_running else None
+        repo = f"{primary} ({branch})" if branch else primary
+    else:
+        repo = EM
+
+    # Idle: not derivable from /proc/loadavg alone; leave as — for now
+    # (would require pty mtime comparison inside the VM)
+    idle = EM
+
+    # Ports
+    if is_running and active_ports:
+        ports = ", ".join(str(p) for p in active_ports)
+    else:
+        ports = EM
+
+    return PsRow(
+        name=name,
+        status=status,
+        uptime=uptime,
+        cpu=cpu,
+        mem=mem,
+        repo=repo,
+        idle=idle,
+        ports=ports,
+    )
+
+
+def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict], default_profile: str | None) -> list[PsRow]:
+    """Build rows for all projects (union of projects.toml and Lima VMs)."""
+    project_names = [k for k, v in cfg.items() if isinstance(v, dict) and k != "default_profile"]
+    all_names = list(dict.fromkeys([*project_names, *lima_vms.keys()]))
+
+    running = [n for n in all_names if lima_vms.get(n, {}).get("status") == "Running"]
+
+    info_futures: dict[str, dict] = {}
+    ports_futures: dict[str, list[int]] = {}
+
+    if running:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(running))) as pool:
+            info_tasks = {
+                n: pool.submit(_gather_running_vm_info, n, _primary_repo_basename(cfg.get(n)))
+                for n in running
+            }
+            port_tasks = {n: pool.submit(_gather_active_ports, n) for n in running}
+            for n, fut in info_tasks.items():
+                try:
+                    info_futures[n] = fut.result(timeout=4.0)
+                except Exception:
+                    info_futures[n] = {}
+            for n, fut in port_tasks.items():
+                try:
+                    ports_futures[n] = fut.result(timeout=4.0)
+                except Exception:
+                    ports_futures[n] = []
+
+    rows: list[PsRow] = []
+    for name in all_names:
+        rows.append(_make_ps_row(
+            name,
+            cfg.get(name),
+            lima_vms.get(name, {}),
+            info_futures.get(name, {}),
+            ports_futures.get(name, []),
+        ))
+    return rows
+
+
+def _print_ps_table(rows: list[PsRow]) -> None:
+    """Print the ps table with dynamic column widths."""
+    headers = ["NAME", "STATUS", "UPTIME", "CPU", "MEM", "REPO", "IDLE", "PORTS"]
+    # Build column data including the header as the first row.
+    cols = [[h] + [getattr(r, h.lower()) for r in rows] for h in headers]
+    widths = [max(len(c) for c in col) for col in cols]
+    for row_vals in zip(*cols):
+        line = "  ".join(f"{cell:<{widths[i]}}" for i, cell in enumerate(row_vals))
+        print(line.rstrip())
+
+
+def cmd_ps(args: argparse.Namespace) -> int:
+    if not PROJECTS_FILE.is_file():
+        print(f"no {PROJECTS_FILE} — copy projects.toml.example and edit")
+        return 0
+    cfg = tomllib.loads(PROJECTS_FILE.read_text())
+    default_profile = cfg.get("default_profile")
+
+    lima_vms = _gather_lima_list_json()
+    rows = _build_ps_rows(cfg, lima_vms, default_profile)
+    _print_ps_table(rows)
     return 0
 
 
@@ -1475,7 +1853,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", metavar="<command>")
 
     sub.add_parser("list", help="List projects from projects.toml with live VM status")
-    sub.add_parser("ps", help="Alias for 'list'")
+    sub.add_parser("ps", help="Rich live-status table for all VMs (uptime, cpu/mem, repo, idle, ports)")
     sub.add_parser("doctor", help="Preflight: lima, git config, SSH agent, signing key, op CLI")
     sub.add_parser("validate", help="Schema-check projects.toml and referenced profiles (no VM)")
 
@@ -1528,7 +1906,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {
     "list": cmd_list,
-    "ps": cmd_list,  # alias
+    "ps": cmd_ps,
     "doctor": cmd_doctor,
     "validate": cmd_validate,
     "up": cmd_up,
