@@ -318,7 +318,7 @@ section + section { padding-top: 0; }
   width: 100%;
 }
 @media (max-width: 1024px) {
-  .hero-grid { grid-template-columns: 1fr; gap: var(--s-7); }
+  .hero-grid { grid-template-columns: minmax(0, 1fr); gap: var(--s-7); }
 }
 .hero-eyebrow {
   font-family: var(--font-mono);
