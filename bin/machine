@@ -255,7 +255,10 @@ def make_renderer(args: argparse.Namespace, vm: str) -> "log_view.Renderer":
         if os.environ.get("MACHINE_PROVISION_LOG")
         else default_provision_log_path(vm)
     )
-    return log_view.Renderer(sys.stdout, tty=tty, verbose=verbose, log_path=log_path)
+    r = log_view.Renderer(sys.stdout, tty=tty, verbose=verbose, log_path=log_path)
+    hint = "" if verbose else "    (--verbose to stream)"
+    print(f"log: {log_path}{hint}")
+    return r
 
 
 def run_quiet(cmd: Sequence[str], *, renderer: "log_view.Renderer") -> int:
@@ -416,36 +419,38 @@ def render_lima_yaml(vm: str) -> Path:
     return out
 
 
-def bake(force: bool = False) -> None:
+def bake(force: bool = False, renderer=None) -> None:
+    _say = (lambda msg: renderer.raw(msg)) if renderer else print
+    _run = (lambda cmd: run_quiet(cmd, renderer=renderer)) if renderer else lambda cmd: run(cmd).returncode
     if not force and golden_fresh():
-        print(f"[bake] cache fresh ({golden_hash()}) — use --force to rebuild")
+        _say(f"[bake] cache fresh ({golden_hash()}) — use --force to rebuild")
         return
     GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
     vm = "machine-base"
     if vm_exists(vm):
-        print(f"[bake] removing stale '{vm}'")
+        _say(f"[bake] removing stale '{vm}'")
         subprocess.run(["limactl", "stop", "-f", vm],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         run(["limactl", "delete", "-f", vm])
 
-    print("[bake] creating base VM (~5 min, base provision only)")
+    _say("[bake] creating base VM (~5 min, base provision only)")
     # Raw lima.yaml — we're creating the cache, can't reference it.
-    run(["limactl", "create", "--tty=false", f"--name={vm}", str(REPO / "lima.yaml")])
-    run(["limactl", "start", vm])
-    print("[bake] uploading provision scripts and config…")
+    _run(["limactl", "create", "--tty=false", f"--name={vm}", str(REPO / "lima.yaml")])
+    _run(["limactl", "start", vm])
+    _say("[bake] uploading provision scripts and config…")
     push_files_to_vm(vm, [])  # no profiles
     render_git_templates(vm)
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     os.environ["MACHINE_PROVISION_LOG"] = str(REPO / ".build" / vm / f"provision-{ts}.log")
-    print("[bake] running provision steps inside VM…")
+    _say("[bake] running provision steps inside VM…")
     run_provision_in_vm(vm, [])
-    run(["limactl", "stop", vm])
+    _run(["limactl", "stop", vm])
 
     src = Path.home() / ".lima" / vm / "disk"
     if not src.is_file():
         die(f"[bake] expected disk at {src}")
     img = golden_img()
-    print(f"[bake] exporting {src} → {img}")
+    _say(f"[bake] exporting {src} → {img}")
     tmp = img.with_suffix(img.suffix + ".tmp")
     # APFS clonefile (cp -c) is near-instant + preserves sparseness; fall back
     # to plain cp if -c isn't supported (non-APFS, non-macOS).
@@ -455,7 +460,7 @@ def bake(force: bool = False) -> None:
     tmp.replace(img)
     golden_stamp().write_text(golden_hash() + "\n")
     run(["limactl", "delete", "-f", vm])
-    print(f"[bake] done — {img}")
+    _say(f"[bake] done — {img}")
 
 
 def ensure_golden_image() -> None:
@@ -995,7 +1000,7 @@ def cmd_up(args: argparse.Namespace) -> int:
             if not golden_fresh():
                 s = r.step_start("bake base image")
                 try:
-                    bake(force=False)
+                    bake(force=False, renderer=r)
                 except subprocess.CalledProcessError as e:
                     r.step_end(s, "fail", str(e.returncode))
                     raise
