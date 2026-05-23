@@ -153,11 +153,11 @@ section + section { padding-top: 0; }
 
 .btn-primary {
   background: var(--cyan);
-  color: #04181c;
+  color: var(--cyan-on);
   position: relative;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
 }
-.btn-primary:hover { background: #5be3f3; color: #04181c; }
+.btn-primary:hover { background: var(--cyan-hi); color: var(--cyan-on); }
 
 .btn-secondary {
   background: transparent;
@@ -210,7 +210,7 @@ section + section { padding-top: 0; }
   font-size: var(--t-mono-s);
   transition: color var(--dur-med) var(--ease-out), background var(--dur-med) var(--ease-out);
 }
-.installer .copy-btn:hover { color: var(--cyan); background: rgba(34,211,238,.05); }
+.installer .copy-btn:hover { color: var(--cyan); background: rgba(227,122,180,.06); }
 .installer .copy-btn.copied { color: var(--green); }
 
 /* ---------- Terminal card ---------- */
@@ -338,7 +338,7 @@ section + section { padding-top: 0; }
   max-width: 18ch;
 }
 .hero h1 .machine-2 {
-  background: linear-gradient(90deg, var(--cyan), var(--pink));
+  background: linear-gradient(90deg, #22d3ee, #f472b6);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -417,7 +417,7 @@ section + section { padding-top: 0; }
   width: 100%;
   max-width: 460px;
   margin-left: auto;
-  box-shadow: 0 24px 60px -28px rgba(34, 211, 238, 0.18);
+  box-shadow: 0 24px 60px -28px rgba(227,122,180, 0.22);
 }
 
 /* ---------- Three-up grid ---------- */
@@ -462,8 +462,8 @@ section + section { padding-top: 0; }
   font-family: var(--font-mono);
   font-size: var(--t-mono-s);
   color: var(--cyan);
-  background: rgba(34,211,238,.06);
-  border: 1px solid rgba(34,211,238,.18);
+  background: rgba(227,122,180,.07);
+  border: 1px solid rgba(227,122,180,.22);
   padding: 3px 8px;
   border-radius: 4px;
 }
@@ -687,12 +687,12 @@ section + section { padding-top: 0; }
   font-family: var(--font-mono);
   font-size: var(--t-mono-s);
   color: var(--cyan);
-  background: rgba(34,211,238,.06);
-  border: 1px solid rgba(34,211,238,.18);
+  background: rgba(227,122,180,.07);
+  border: 1px solid rgba(227,122,180,.22);
   border-radius: 4px;
   padding: 3px 8px;
 }
-.demo-restart:hover { background: rgba(34,211,238,.12); }
+.demo-restart:hover { background: rgba(227,122,180,.14); }
 
 /* ---------- Tend / commands grid ---------- */
 .cmd-grid {
@@ -729,7 +729,7 @@ section + section { padding-top: 0; }
   font-size: var(--t-small);
   line-height: 1.45;
 }
-.cmd-card.destroy .k { color: var(--pink); }
+/* destroy card intentionally unhighlighted — reads as just another command */
 
 /* ---------- IDE mock ---------- */
 .ide-wrap {
@@ -788,7 +788,7 @@ section + section { padding-top: 0; }
   border-bottom: 1px solid var(--border);
 }
 .ide-picker .row:last-child { border-bottom: 0; }
-.ide-picker .row.active { background: rgba(34,211,238,.07); }
+.ide-picker .row.active { background: rgba(227,122,180,.08); }
 .ide-picker .row .glyph {
   font-family: var(--font-mono);
   color: var(--dim);
@@ -818,7 +818,7 @@ section + section { padding-top: 0; }
   border-radius: var(--r-lg);
   padding: var(--s-9) var(--s-6);
   background:
-    radial-gradient(ellipse at 50% 0%, rgba(34,211,238,.06), transparent 60%),
+    radial-gradient(ellipse at 50% 0%, rgba(227,122,180,.08), transparent 60%),
     var(--surface);
 }
 .final h2 {

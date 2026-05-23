@@ -14,11 +14,14 @@
   --muted:     #9ca3af;
   --dim:       #52525b;
 
-  /* Accents (from banner.svg) */
-  --cyan:      #22d3ee;
+  /* Accents (from banner.svg, with rose primary) */
+  --cyan:      #E37AB4;  /* token name kept for compat — role is "primary rose" */
+  --cyan-hi:   #EE93C3;  /* primary hover */
+  --cyan-on:   #1a0612;  /* readable ink on primary */
   --green:     #34d399;
   --purple:    #a78bfa;
-  --pink:      #f472b6;
+  --pink:      #f472b6;  /* deny / warn */
+  --danger:    #ef4444;  /* destructive actions */
 
   /* Type */
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
