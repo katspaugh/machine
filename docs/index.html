@@ -11,7 +11,12 @@
   <meta property="og:type" content="website" />
   <meta property="og:title" content="machine — one isolated VM per project" />
   <meta property="og:description" content="Reproducible, sandboxed Lima VMs for the Claude Code / Codex era. No host filesystem mount. No cross-project bleed." />
+  <meta property="og:image" content="https://runmachine.dev/assets/banner.svg" />
+  <meta property="og:image:alt" content="machine — one isolated Lima VM per project" />
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://runmachine.dev/assets/banner.svg" />
+
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -30,7 +35,7 @@
       <span class="wordmark">machine</span>
     </a>
     <nav class="nav-links">
-      <a href="#docs" class="docs-link">The machinist's manual</a>
+      <a href="/docs/" class="docs-link">The machinist's manual</a>
       <a class="nav-cta" href="https://github.com/katspaugh/machine" rel="noreferrer">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
         <span>GitHub</span>
@@ -53,16 +58,17 @@
         <p class="hero-sub">
           Reproducible, sandboxed Lima VMs for the Claude Code / Codex era.
           No host filesystem mount. No cross-project bleed.
-          One <code>machine up &lt;project&gt;</code> away.
+          One machine per project.
         </p>
         <div class="hero-ctas">
-          <button class="btn btn-primary" data-copy="git clone git@github.com:katspaugh/machine.git ~/Sites/machine" data-label="Boot a machine">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l8 5-8 5z" fill="currentColor" stroke="none"/></svg>
-            <span class="btn-text">Boot a machine</span>
-          </button>
-          <a class="btn btn-secondary" href="#threat-model">
-            Read the threat model <span class="arrow">→</span>
-          </a>
+          <div class="installer hero-installer">
+            <div class="prompt">$</div>
+            <div class="cmd">brew install katspaugh/machine/machine</div>
+            <button class="copy-btn" data-copy="brew install katspaugh/machine/machine">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11V3a1 1 0 0 1 1-1h8"/></svg>
+              <span class="label">copy</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -232,7 +238,7 @@
       <article class="why-card">
         <div class="why-num">03</div>
         <h3>Agent-ready, on day one.</h3>
-        <p>Claude Code, Codex, Aider, and friends ship in the base image. Point them at the SSH host and let them rip.</p>
+        <p>Claude Code and Codex ship in the base image, with the official Claude marketplace and a curated plugin set wired up. Point your editor at the SSH host and let them rip.</p>
         <code>machine ssh blog</code>
       </article>
     </div>
@@ -354,13 +360,13 @@
   </div>
 </section>
 
-<!-- ============ LIVE DEMO ============ -->
+<!-- ============ DEMO ============ -->
 <section id="demo">
   <div class="container reveal">
-    <p class="section-eyebrow">// section 05 — live</p>
-    <h2 class="section-title">From nothing to a shell, in 38 seconds.</h2>
+    <p class="section-eyebrow">// section 05 — demo</p>
+    <h2 class="section-title">What it looks like.</h2>
     <p class="section-intro">
-      Recorded once, played back forever. The first <code>up</code> is the slow one — every subsequent boot is cached.
+      A VHS replay of the CLI surface — <code>list</code>, <code>up</code>, <code>ssh</code>. The first <code>up</code> is the slow one; subsequent boots are warm restarts.
     </p>
 
     <div class="demo-wrap">
@@ -369,12 +375,8 @@
           <div class="term-dots"><span></span><span></span><span></span></div>
           <span>~/code/blog</span>
         </div>
-        <div class="right">
-          <span id="demo-clock">00:00 / 00:38</span>
-          <button class="demo-restart" id="demo-restart">⟲ restart</button>
-        </div>
       </div>
-      <div class="demo-body" id="demo-body"></div>
+      <img class="demo-gif" src="assets/machine.gif" alt="Replay of machine list, machine up blog, and machine ssh blog." loading="lazy" width="1100" height="720" />
     </div>
   </div>
 </section>
@@ -385,7 +387,7 @@
     <p class="section-eyebrow">// section 06 — lifecycle</p>
     <h2 class="section-title">Tend the machine.</h2>
     <p class="section-intro">
-      Eight commands, no manifesto. Most days you'll use the first two.
+      Nine commands, no manifesto. Most days you'll use the first two.
     </p>
 
     <div class="cmd-grid">
@@ -419,7 +421,11 @@
       </div>
       <div class="cmd-card">
         <div class="k">machine secrets <span class="sub">&lt;p&gt;</span></div>
-        <div class="v">Show which 1Password items resolve into <code>/run/secrets</code> for this project.</div>
+        <div class="v">Render 1Password Environments into <code>$XDG_RUNTIME_DIR/dev-secrets</code> (tmpfs) for this project.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine init</div>
+        <div class="v">First run only. Writes a starter <code>projects.toml</code> to <code>~/.config/machine/</code> (or to the repo root in dev mode).</div>
       </div>
     </div>
   </div>
@@ -465,7 +471,7 @@
             </div>
           </div>
         </div>
-        <p class="ide-caption"><code>machine up</code> writes the host into <code>~/.ssh/config.d/machine</code>. Cursor and JetBrains Gateway pick it up too.</p>
+        <p class="ide-caption"><code>machine up</code> maintains a sentinel-delimited block in <code>~/.ssh/config</code>. Cursor and JetBrains Gateway pick it up too.</p>
       </div>
     </div>
   </div>
@@ -476,22 +482,27 @@
   <div class="container reveal">
     <div class="final">
       <h2>Boot a machine.</h2>
-      <p>Clone the repo, drop your projects into <code>projects.toml</code>, and run <code>machine up</code>.</p>
+      <p>Install from the Homebrew tap, run <code>machine init</code>, then <code>machine up</code>.</p>
 
       <div class="installer" id="installer">
         <div class="prompt">$</div>
-        <div class="cmd" id="install-cmd">git clone git@github.com:katspaugh/machine.git ~/Sites/machine</div>
-        <button class="copy-btn" id="install-copy" data-copy="git clone git@github.com:katspaugh/machine.git ~/Sites/machine">
+        <div class="cmd" id="install-cmd">brew install katspaugh/machine/machine</div>
+        <button class="copy-btn" id="install-copy" data-copy="brew install katspaugh/machine/machine">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11V3a1 1 0 0 1 1-1h8"/></svg>
           <span class="label">copy</span>
         </button>
       </div>
+      <p class="install-alt">
+        Prefer to clone? <a href="https://github.com/katspaugh/machine#setup">git clone the repo</a> — same code, dev mode.
+        Read the <a href="https://github.com/katspaugh/homebrew-machine/blob/main/Formula/machine.rb">formula</a>
+        or <a href="https://github.com/katspaugh/machine/blob/main/docs/TAP.md">verify the release</a> before installing.
+      </p>
 
       <div class="final-actions">
-        <a class="btn btn-secondary" href="#docs">Open the manual <span class="arrow">→</span></a>
+        <a class="btn btn-secondary" href="/docs/">Open the manual <span class="arrow">→</span></a>
         <a class="btn btn-secondary" href="https://github.com/katspaugh/machine">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-          Star on GitHub · <span class="mono" style="color: var(--muted)">1.2k</span>
+          Star on GitHub
         </a>
       </div>
     </div>
@@ -499,7 +510,7 @@
 </section>
 
 <!-- ============ FOOTER ============ -->
-<footer id="docs">
+<footer id="site-footer">
   <div class="container">
     <div class="foot-grid">
       <div>
@@ -512,10 +523,10 @@
       <div class="foot-col">
         <h5>// docs</h5>
         <ul>
-          <li><a href="https://github.com/katspaugh/machine#quickstart">Quickstart</a></li>
-          <li><a href="https://github.com/katspaugh/machine#setup">Configuration</a></li>
-          <li><a href="https://github.com/katspaugh/machine#commands">CLI reference</a></li>
-          <li><a href="https://github.com/katspaugh/machine#verifying">Verifying</a></li>
+          <li><a href="/docs/">The machinist's manual</a></li>
+          <li><a href="/docs/#quickstart">Quickstart</a></li>
+          <li><a href="/docs/#setup">Configuration</a></li>
+          <li><a href="/docs/#commands">CLI reference</a></li>
         </ul>
       </div>
       <div class="foot-col">
@@ -531,17 +542,18 @@
         <h5>// safety</h5>
         <ul>
           <li><a href="#threat-model">Threat model</a></li>
-          <li><a href="https://github.com/katspaugh/machine#1password-env-injection">Secrets (1Password)</a></li>
-          <li><a href="https://github.com/katspaugh/machine#ide-integration-vs-code-cursor-jetbrains-gateway">IDE integration</a></li>
-          <li><a href="https://github.com/katspaugh/machine#threat-model">Threat model · README</a></li>
+          <li><a href="/docs/#secrets">Secrets (1Password)</a></li>
+          <li><a href="/docs/#ide">IDE integration</a></li>
+          <li><a href="/docs/#ssh-agent">SSH agent</a></li>
         </ul>
       </div>
       <div class="foot-col">
         <h5>// elsewhere</h5>
         <ul>
           <li><a href="https://github.com/katspaugh/machine">GitHub</a></li>
+          <li><a href="https://github.com/katspaugh/homebrew-machine">Homebrew tap</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/docs/TAP.md">Release / verify</a></li>
           <li><a href="https://lima-vm.io/">Lima upstream</a></li>
-          <li><a href="https://github.com/katspaugh/machine#repository-layout">Repo layout</a></li>
         </ul>
       </div>
     </div>

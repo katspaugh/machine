@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-import io
 import re
 import subprocess
 import time

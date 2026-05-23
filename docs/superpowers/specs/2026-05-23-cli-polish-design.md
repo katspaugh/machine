@@ -43,7 +43,7 @@ Two pieces:
 
 ## Step protocol (host ↔ in-VM provisioner)
 
-`provision/run.py` emits a small machine-readable protocol on stdout, in addition to its existing `[provision] <name>` output. The host CLI parses these lines; everything not matching the protocol is treated as raw step output.
+`provision/run.py` emits a small machine-readable protocol on **stderr**, alongside its existing `[provision] <name>` output (also on stderr). The host CLI launches the in-VM provisioner with `stderr=subprocess.STDOUT`, so both streams arrive merged on a single pipe — the host parses these merged lines, and everything not matching the protocol is treated as raw step output.
 
 ```
 [step:start] <name>
@@ -85,7 +85,7 @@ class Renderer:
 
 ### TTY mode
 
-- ANSI cursor-up + clear-line redraws the active step every ~120 ms.
+- ANSI cursor-up + clear-line redraws the active step opportunistically on each `step_*` / `raw()` call, no background timer thread. The spinner frame is a function of elapsed time, so it advances whenever the renderer is re-entered — which in practice happens often enough during provisioning (subprocess output keeps arriving) that the spinner appears live. Long-running silent commands can leave the spinner frozen between events; this is an explicit trade-off against introducing background threading. If a step is genuinely silent for many seconds, the user still sees the in-progress glyph + elapsed-time-of-step on the next call.
 - Glyphs: `⧗` active (rotating spinner frame), `✓` ok, `↷` skip, `✗` fail.
 - Completed steps remain on screen with `glyph name (duration)`.
 - On `fail`, the buffered raw lines are printed below the failed step, each indented and prefixed with `  · `. No truncation — the user wants the full failure context on screen.

@@ -31,8 +31,8 @@ def _tmp_log(suffix=".log") -> str:
 class TestDefaultProvisionLogPath(unittest.TestCase):
     def test_path_shape(self):
         path = m.default_provision_log_path("blog")
-        # Should be under ~/.machine/logs/
-        self.assertEqual(path.parent, Path.home() / ".machine" / "logs")
+        # Should be under <STATE_DIR>/logs/
+        self.assertEqual(path.parent, m.STATE_DIR / "logs")
         # Filename should match blog-<ISO8601>.log
         pattern = re.compile(r"^blog-\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\.log$")
         self.assertRegex(path.name, pattern)

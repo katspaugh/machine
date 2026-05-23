@@ -318,7 +318,7 @@ section + section { padding-top: 0; }
   width: 100%;
 }
 @media (max-width: 1024px) {
-  .hero-grid { grid-template-columns: 1fr; gap: var(--s-7); }
+  .hero-grid { grid-template-columns: minmax(0, 1fr); gap: var(--s-7); }
 }
 .hero-eyebrow {
   font-family: var(--font-mono);
@@ -387,6 +387,14 @@ section + section { padding-top: 0; }
   gap: var(--s-3);
   flex-wrap: wrap;
   align-items: center;
+}
+.installer.hero-installer {
+  width: 100%;
+  max-width: 460px;
+}
+.hero-installer {
+  width: 100%;
+  max-width: 520px;
 }
 
 .scroll-hint {
@@ -655,7 +663,7 @@ section + section { padding-top: 0; }
   border-style: dashed;
 }
 
-/* ---------- Live demo ---------- */
+/* ---------- Demo ---------- */
 .demo-wrap {
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
@@ -674,25 +682,11 @@ section + section { padding-top: 0; }
   color: var(--dim);
 }
 .demo-head .left { display: flex; align-items: center; gap: 12px; }
-.demo-head .right { display: flex; align-items: center; gap: 12px; color: var(--dim); }
-.demo-body {
-  padding: 20px 20px 28px;
-  min-height: 360px;
-  font-family: var(--font-mono);
-  font-size: var(--t-mono);
-  line-height: 1.55;
-  white-space: pre-wrap;
+.demo-gif {
+  display: block;
+  width: 100%;
+  height: auto;
 }
-.demo-restart {
-  font-family: var(--font-mono);
-  font-size: var(--t-mono-s);
-  color: var(--cyan);
-  background: rgba(227,122,180,.07);
-  border: 1px solid rgba(227,122,180,.22);
-  border-radius: 4px;
-  padding: 3px 8px;
-}
-.demo-restart:hover { background: rgba(227,122,180,.14); }
 
 /* ---------- Tend / commands grid ---------- */
 .cmd-grid {
@@ -842,6 +836,19 @@ section + section { padding-top: 0; }
   max-width: 520px;
   margin: 0 auto var(--s-5);
 }
+.install-alt {
+  font-size: 0.85rem;
+  max-width: 56ch;
+  margin: calc(var(--s-5) * -0.5) auto var(--s-6) !important;
+  color: var(--muted);
+}
+.install-alt a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+}
+.install-alt a:hover { text-decoration-color: currentColor; }
 
 /* ---------- Footer ---------- */
 footer {

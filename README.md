@@ -8,13 +8,24 @@ A reproducible Lima VM per GitHub project, with Docker, Node, agent CLIs (Claude
 
 Claude Code comes pre-installed with the official marketplace and these plugins enabled: `frontend-design`, `superpowers`, `github`, `typescript-lsp`, `security-guidance`, `commit-commands`, `chrome-devtools-mcp`, `supabase`. Permission `defaultMode` is set to `auto`.
 
-## Prerequisites
+## Install
 
 ```sh
-brew install lima
+brew install katspaugh/machine/machine
 ```
 
-`bin/machine` is a Python 3.11+ script (uses `tomllib` from stdlib). macOS 14+ ships 3.12 system Python; otherwise `brew install python@3.12`. Run `bin/machine doctor` after the first clone to verify everything resolves.
+The formula pulls in `lima` and `python@3.12`. The tap repo is [katspaugh/homebrew-machine](https://github.com/katspaugh/homebrew-machine); each release is pinned to a tagged tarball + SHA256. See [docs/TAP.md](docs/TAP.md) for the release runbook.
+
+Prefer to run from a clone (dev mode)? Skip the brew install and:
+
+```sh
+git clone git@github.com:katspaugh/machine.git ~/Sites/machine
+~/Sites/machine/bin/machine doctor
+```
+
+In dev mode `projects.toml` lives at the repo root; under brew it lives at `~/.config/machine/projects.toml` (override with `MACHINE_CONFIG_DIR`).
+
+## Prerequisites
 
 - An SSH key on the host, served by an agent the VM can forward. Either:
   - **macOS Keychain** (default): `ssh-add --apple-use-keychain ~/.ssh/id_ed25519`
@@ -22,14 +33,16 @@ brew install lima
 - That key registered as a **signing key** on GitHub (Settings → SSH and GPG keys → New SSH key → Key type: Signing).
 - Host `git config --global user.name` and `user.email` set (or override via `GIT_NAME` / `GIT_EMAIL`).
 
+Run `machine doctor` to verify everything resolves.
+
 ## Setup
 
 ```sh
-git clone git@github.com:katspaugh/machine.git ~/Sites/machine
-cd ~/Sites/machine
-cp projects.toml.example projects.toml
-$EDITOR projects.toml
+machine init                  # writes ~/.config/machine/projects.toml from the bundled example
+$EDITOR ~/.config/machine/projects.toml
 ```
+
+(In dev mode: `cp projects.toml.example projects.toml && $EDITOR projects.toml` from the repo root.)
 
 Example `projects.toml`:
 
@@ -58,13 +71,13 @@ repos = ["git@github.com:you/playground.git"]
 ## Quickstart
 
 ```sh
-bin/machine up blog        # creates + starts + provisions VM "blog", clones the repo
-bin/machine ssh blog       # interactive shell, cwd = ~/code/blog
+machine up blog            # creates + starts + provisions VM "blog", clones the repo
+machine ssh blog           # interactive shell, cwd = ~/code/blog
 ```
 
 ![demo](assets/machine.gif)
 
-Provisioning output is captured to `~/.machine/logs/<vm>-<iso>.log` — the path is printed at the start of every `up` run. Pass `--verbose` to stream raw output inline.
+Provisioning output is captured to `~/.local/state/machine/logs/<vm>-<iso>.log` (or `<repo>/.build/logs/` in a git checkout) — the path is printed at the start of every `up` run. Pass `--verbose` to stream raw output inline.
 
 Inside the VM, each repo is at `~/code/<repo-basename>/`. JS deps are installed automatically on first clone (yarn / pnpm / npm, picked from `packageManager` in `package.json`). For env vars, drop a `.env` file in the project — Node's `dotenv` (or your framework) reads it directly. For secrets you'd rather not write to disk, see [1Password env injection](#1password-env-injection).
 
@@ -83,7 +96,7 @@ Inside the session:
 | `Ctrl-b "` / `%` | Horizontal / vertical split — also inherits the pane cwd |
 | `Ctrl-b d` | Detach (session keeps running; reattach with `machine ssh <project>`) |
 
-The session survives detach, so closing the host terminal and reconnecting later drops you back into the same windows. To get a plain non-tmux shell instead, use `bin/machine run <project> bash -l` or `limactl shell <project>` directly.
+The session survives detach, so closing the host terminal and reconnecting later drops you back into the same windows. To get a plain non-tmux shell instead, use `machine run <project> bash -l` or `limactl shell <project>` directly.
 
 ## IDE integration (VS Code, Cursor, JetBrains Gateway)
 
@@ -109,20 +122,20 @@ In VS Code → Remote-SSH: open the host picker, pick `machine-<project>`, then 
 
 | Command | What |
 |---|---|
-| `bin/machine list` | List projects from `projects.toml` |
-| `bin/machine ps` | Rich live-status table: per-VM uptime, CPU/mem, repo + branch, idle time, active host ports |
-| `bin/machine doctor` | Preflight host checks: lima, git config, SSH agent, signing key, `op` CLI |
-| `bin/machine validate` | Schema-check `projects.toml` and referenced profiles (no VM) |
-| `bin/machine up <p>` | Create if needed, start, provision, clone the repo(s). Idempotent. `--dry-run` prints provision steps without executing. `--verbose` streams raw provisioner output; `--plain` disables the spinner (useful in CI). |
-| `bin/machine down <p>` | Stop the VM |
-| `bin/machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). Attaches to a per‑project tmux session so `Ctrl‑b c` opens new windows that stay in the VM at the current pane's cwd. |
-| `bin/machine run <p> <cmd>...` | Non-interactive command in the VM |
-| `bin/machine secrets <p> [<repo>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)) |
-| `bin/machine secrets --clear <p> [<repo>]` | Wipe rendered secrets from VM tmpfs |
-| `bin/machine status <p>` | `limactl list` for the VM |
-| `bin/machine update <p>` | Refresh in-place: `apt upgrade`, npm globals, claude installer. `--reprovision` also re-applies TOML configs. |
-| `bin/machine rebuild <p>` | **Destroys** the VM and rebuilds from scratch (reproducibility test). `-y` skips confirmation. |
-| `bin/machine destroy <p>` | Delete the VM. `-y` skips confirmation. |
+| `machine list` | List projects from `projects.toml` |
+| `machine ps` | Rich live-status table: per-VM uptime, CPU/mem, repo + branch, idle time, active host ports |
+| `machine doctor` | Preflight host checks: lima, git config, SSH agent, signing key, `op` CLI |
+| `machine validate` | Schema-check `projects.toml` and referenced profiles (no VM) |
+| `machine up <p>` | Create if needed, start, provision, clone the repo(s). Idempotent. `--dry-run` prints provision steps without executing. `--verbose` streams raw provisioner output; `--plain` disables the spinner (useful in CI). |
+| `machine down <p>` | Stop the VM |
+| `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). Attaches to a per‑project tmux session so `Ctrl‑b c` opens new windows that stay in the VM at the current pane's cwd. |
+| `machine run <p> <cmd>...` | Non-interactive command in the VM |
+| `machine secrets <p> [<repo>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)) |
+| `machine secrets --clear <p> [<repo>]` | Wipe rendered secrets from VM tmpfs |
+| `machine status <p>` | `limactl list` for the VM |
+| `machine update <p>` | Refresh in-place: `apt upgrade`, npm globals, claude installer. `--reprovision` also re-applies TOML configs. |
+| `machine rebuild <p>` | **Destroys** the VM and rebuilds from scratch (reproducibility test). `-y` skips confirmation. |
+| `machine destroy <p>` | Delete the VM. `-y` skips confirmation. |
 
 ## Repository layout
 
@@ -202,8 +215,8 @@ Schema reference is in the comments at the top of `provision.toml`.
 ```sh
 bash tests/run-all.sh <project>     # full VM smokes (lint + boot + docker + node + git-sign + …)
 bash tests/unit.sh                  # host-side Python unit tests (no VM)
-bin/machine validate                # schema-check the TOMLs
-bin/machine doctor                  # preflight host environment
+machine validate                    # schema-check the TOMLs
+machine doctor                      # preflight host environment
 ```
 
 `tests/run-all.sh` requires a provisioned VM (set `MACHINE_NAME=<project>` or pass the project as arg 1). `tests/unit.sh` runs offline.
@@ -233,7 +246,7 @@ To use 1Password's agent instead — keys never touch `~/.ssh`, every signature 
 brew install 1password-cli                    # only needed for OP_SIGNING_KEY_REF
 # In 1Password: Settings → Developer → "Use the SSH agent"
 export MACHINE_USE_1PASSWORD=1                # for the current shell, or your shell rc
-bin/machine up <project>
+machine up <project>
 ```
 
 For the git signing pubkey, the resolution order is:
@@ -255,8 +268,8 @@ direnv allow
 Then on the host:
 
 ```sh
-bin/machine secrets <project>           # syncs every .envrc using `use op_env` in that VM
-bin/machine secrets <project> <repo>    # narrow to one repo within a multi-repo project
+machine secrets <project>               # syncs every .envrc using `use op_env` in that VM
+machine secrets <project> <repo>        # narrow to one repo within a multi-repo project
 ```
 
 `machine secrets` reads the Environment from 1Password (Touch ID), pipes the rendered KEY=value pairs into the VM, and writes them to `$XDG_RUNTIME_DIR/dev-secrets/<env-id>.env` (tmpfs, mode 600, gone on reboot). The `op_env` direnv helper loads that cache when you `cd` into the project. No host-side disk path is involved.
@@ -280,4 +293,4 @@ No host filesystem is mounted. Each project gets its own VM, so a compromise of 
 | `PROJECTS_FILE` | `<repo>/projects.toml` |
 | `MACHINE_VERBOSE` | set `=1` to stream raw provisioner output inline (equivalent to `--verbose`) |
 | `MACHINE_PLAIN` | set `=1` to disable the spinner and use plain text output (equivalent to `--plain`) |
-| `MACHINE_PROVISION_LOG` | override the default provisioning log path (`~/.machine/logs/<vm>-<iso>.log`) |
+| `MACHINE_PROVISION_LOG` | override the default provisioning log path (`<state-dir>/logs/<vm>-<iso>.log`) |
