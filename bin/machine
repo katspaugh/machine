@@ -24,6 +24,9 @@ from typing import Any, Iterable, Sequence
 
 REPO = Path(__file__).resolve().parent.parent
 PROJECTS_FILE = Path(os.environ.get("PROJECTS_FILE") or REPO / "projects.toml")
+
+sys.path.insert(0, str(REPO / "provision"))
+import log_view  # noqa: E402  (non-top-level import after sys.path tweak)
 GOLDEN_DIR = Path.home() / ".cache" / "machine"
 ONEPASS_SOCK_DEFAULT = (
     Path.home()
@@ -228,6 +231,55 @@ def run_provision_in_vm(vm: str, profiles: Iterable[str]) -> None:
         rc = proc.wait()
     if rc != 0:
         sys.exit(rc)
+
+
+# --- Renderer helpers -------------------------------------------------------
+
+def default_provision_log_path(vm: str) -> Path:
+    """~/.machine/logs/<vm>-<iso8601>.log (UTC). The renderer creates parents."""
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return Path.home() / ".machine" / "logs" / f"{vm}-{ts}.log"
+
+
+def make_renderer(args: argparse.Namespace, vm: str) -> "log_view.Renderer":
+    """Build a Renderer for an `up`-like command, honoring --verbose/--plain and env vars."""
+    plain = getattr(args, "plain", False) or os.environ.get("MACHINE_PLAIN") == "1"
+    verbose = getattr(args, "verbose", False) or os.environ.get("MACHINE_VERBOSE") == "1"
+    tty = sys.stdout.isatty() and not plain
+    log_path = (
+        Path(os.environ["MACHINE_PROVISION_LOG"])
+        if os.environ.get("MACHINE_PROVISION_LOG")
+        else default_provision_log_path(vm)
+    )
+    return log_view.Renderer(sys.stdout, tty=tty, verbose=verbose, log_path=log_path)
+
+
+def run_quiet(cmd: Sequence[str], *, renderer: "log_view.Renderer") -> int:
+    """Run a subprocess, piping combined stdout+stderr line-by-line into renderer.raw().
+    Returns the exit code. Caller is responsible for emitting step_start/end around the call."""
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          bufsize=1, text=True) as proc:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            renderer.raw(line.rstrip("\n"))
+        return proc.wait()
+
+
+def spawn_provisioner(vm: str, profiles: list[str]) -> subprocess.Popen:
+    """Build the limactl-shell-into-VM command for provision/run.py and return a streaming Popen.
+    The renderer's consume() drives the rest. Mirrors today's run_provision_in_vm command shape."""
+    config_args = ["/opt/dev-vm/provision.toml",
+                   *(f"/opt/dev-vm/profiles/{p}.toml" for p in profiles)]
+    extra: list[str] = []
+    if os.environ.get("MACHINE_DRY_RUN") == "1":
+        extra.append("--dry-run")
+    sudo_env = []
+    if "MACHINE_SHELL" in os.environ:
+        sudo_env.append(f"MACHINE_SHELL={os.environ['MACHINE_SHELL']}")
+    cmd = ["limactl", "shell", vm, "--", "sudo", *sudo_env,
+           "python3", "/opt/dev-vm/provision/run.py", *extra, *config_args]
+    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            bufsize=1, text=True)
 
 
 # --- Git template rendering (host-side) ------------------------------------
@@ -489,51 +541,78 @@ def cmd_up(args: argparse.Namespace) -> int:
     if args.dry_run:
         os.environ["MACHINE_DRY_RUN"] = "1"
 
-    # Fail fast on typos / access before spending minutes on VM setup.
-    verify_repos_reachable(urls)
-
-    if not vm_exists(name):
-        # A previous `limactl create` may have left a half-populated VM dir
-        # behind (e.g. base image copied but disk-resize refused). It blocks
-        # the next create, so clear it before retrying.
-        leftover = Path.home() / ".lima" / name
-        if leftover.exists():
-            print(f"[machine] removing stale VM dir {leftover}")
-            shutil.rmtree(leftover)
-        ensure_golden_image()
-        lima_yaml = render_lima_yaml(name)
-        run(["limactl", "create", "--tty=false", f"--name={name}", str(lima_yaml)])
-    run(["limactl", "start", name])
-
-    print(f"[machine] uploading provision scripts and config to '{name}'…")
-    push_files_to_vm(name, profiles)
-    render_git_templates(name)
-    if not os.environ.get("MACHINE_PROVISION_LOG"):
-        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        log = REPO / ".build" / name / f"provision-{ts}.log"
-        os.environ["MACHINE_PROVISION_LOG"] = str(log)
-        print(f"[machine] provision log: {log}")
-    run_provision_in_vm(name, profiles)
-
-    # Clone repos in parallel; each clone serializes its own deps install.
     rc = 0
-    if urls:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(urls)) as pool:
-            for fut in concurrent.futures.as_completed(
-                pool.submit(clone_repo, name, u) for u in urls
-            ):
+    with make_renderer(args, name) as r:
+        s = r.step_start("preflight checks")
+        try:
+            verify_repos_reachable(urls)
+            r.step_end(s, "ok")
+        except SystemExit:
+            r.step_end(s, "fail")
+            raise
+
+        if not vm_exists(name):
+            # A previous `limactl create` may have left a half-populated VM dir
+            # behind (e.g. base image copied but disk-resize refused). It blocks
+            # the next create, so clear it before retrying.
+            leftover = Path.home() / ".lima" / name
+            if leftover.exists():
+                r.raw(f"removing stale VM dir {leftover}")
+                shutil.rmtree(leftover)
+            if not golden_fresh():
+                s = r.step_start("bake base image")
                 try:
-                    fut.result()
+                    bake(force=False)
+                except subprocess.CalledProcessError as e:
+                    r.step_end(s, "fail", str(e.returncode))
+                    raise
+                r.step_end(s, "ok")
+            s = r.step_start(f"create VM '{name}'")
+            lima_yaml = render_lima_yaml(name)
+            rc = run_quiet(["limactl", "create", "--tty=false", f"--name={name}", str(lima_yaml)],
+                           renderer=r)
+            r.step_end(s, "ok" if rc == 0 else "fail", str(rc) if rc else "")
+            if rc != 0:
+                return rc
+
+        s = r.step_start(f"start VM '{name}'")
+        rc = run_quiet(["limactl", "start", name], renderer=r)
+        r.step_end(s, "ok" if rc == 0 else "fail", str(rc) if rc else "")
+        if rc != 0:
+            return rc
+
+        s = r.step_start("upload provision config")
+        push_files_to_vm(name, profiles)
+        render_git_templates(name)
+        r.step_end(s, "ok")
+
+        s = r.step_start("provisioning")
+        rc = r.consume(spawn_provisioner(name, profiles), depth=1)
+        r.step_end(s, "ok" if rc == 0 else "fail", str(rc) if rc else "")
+        if rc != 0:
+            return rc
+
+        rc = 0
+        if urls:
+            s = r.step_start("clone repos")
+            for url in urls:
+                try:
+                    clone_repo_quiet(name, url, r)
                 except subprocess.CalledProcessError as e:
                     rc = e.returncode or 1
+            r.step_end(s, "ok" if rc == 0 else "fail")
+            if rc != 0:
+                return rc
+
     if rc == 0:
-        print(f"[machine] '{name}' is ready — run 'machine ssh {name}' to log in.")
+        print(f"✓ {name} ready — run 'machine ssh {name}' to log in.")
         refresh_ssh_config()
     return rc
 
 
 def clone_repo(vm: str, url: str) -> None:
-    """Clone one repo into ~/code/<basename>/ inside the VM. Idempotent."""
+    """Clone one repo into ~/code/<basename>/ inside the VM. Idempotent.
+    (Preserved for callers outside cmd_up; cmd_up now uses clone_repo_quiet.)"""
     repo_name = repo_basename(url)
     rc = lima_shell(
         vm,
@@ -570,6 +649,55 @@ def clone_repo(vm: str, url: str) -> None:
     rc = lima_shell(vm, ["bash", "-lc", deps_script], stdin=subprocess.DEVNULL).returncode
     if rc != 0:
         print(f"[deps] {repo_name}: install failed (continuing)")
+
+
+def clone_repo_quiet(vm: str, url: str, renderer: "log_view.Renderer") -> None:
+    """Clone one repo into ~/code/<basename>/ inside the VM, reporting progress
+    to the renderer as a nested step. Idempotent. Raises CalledProcessError on
+    clone failure (deps failures are non-fatal, consistent with clone_repo)."""
+    repo_name = repo_basename(url)
+    cs = renderer.step_start(repo_name, depth=1)
+
+    # Check if already present.
+    rc = lima_shell(
+        vm,
+        ["bash", "-lc", f'[ -d "$HOME/code/{shlex.quote(repo_name)}/.git" ]'],
+        stdin=subprocess.DEVNULL,
+    ).returncode
+    if rc == 0:
+        renderer.step_end(cs, "skip", "already present")
+        return
+
+    # Clone.
+    clone_cmd = ["limactl", "shell", vm, "--",
+                 "env",
+                 "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new -o UpdateHostKeys=no",
+                 "bash", "-lc",
+                 f'mkdir -p "$HOME/code" && cd "$HOME/code" && '
+                 f'git clone --recurse-submodules -- {shlex.quote(url)}']
+    rc = run_quiet(clone_cmd, renderer=renderer)
+    if rc != 0:
+        renderer.step_end(cs, "fail", str(rc))
+        raise subprocess.CalledProcessError(rc, clone_cmd)
+
+    # JS deps if package.json present (non-fatal).
+    deps_script = (
+        f'cd "$HOME/code/{shlex.quote(repo_name)}" 2>/dev/null || exit 0\n'
+        '[ -f package.json ] || exit 0\n'
+        'if grep -q \'"packageManager":[[:space:]]*"yarn\' package.json 2>/dev/null; then\n'
+        '  echo "[deps] yarn install"; yarn install\n'
+        'elif grep -q \'"packageManager":[[:space:]]*"pnpm\' package.json 2>/dev/null; then\n'
+        '  echo "[deps] pnpm install"; pnpm install\n'
+        'else\n'
+        '  echo "[deps] npm install"; npm install\n'
+        'fi'
+    )
+    deps_cmd = ["limactl", "shell", vm, "--", "bash", "-lc", deps_script]
+    deps_rc = run_quiet(deps_cmd, renderer=renderer)
+    if deps_rc != 0:
+        renderer.raw(f"[deps] {repo_name}: install failed (continuing)")
+
+    renderer.step_end(cs, "ok")
 
 
 def cmd_down(args: argparse.Namespace) -> int:
@@ -1381,6 +1509,10 @@ def build_parser() -> argparse.ArgumentParser:
     up = sub.add_parser("up", help="Create (if needed) + start + provision + clone the project repo(s)")
     up.add_argument("--dry-run", action="store_true",
                     help="Print provision steps without executing them")
+    up.add_argument("--verbose", action="store_true",
+                    help="Stream raw subprocess output inline (in addition to log file)")
+    up.add_argument("--plain", action="store_true",
+                    help="Disable TTY spinner/redraw (one line per step, plain text)")
     up.add_argument("project")
 
     sub.add_parser("down", help="Stop the VM").add_argument("project")
