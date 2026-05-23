@@ -7,6 +7,7 @@ lima.local.yaml
 *.swp
 .idea/
 .vscode/
+.claude/
 projects.toml
 projects.list
 .env
