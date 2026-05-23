@@ -385,7 +385,7 @@
     <p class="section-eyebrow">// section 06 — lifecycle</p>
     <h2 class="section-title">Tend the machine.</h2>
     <p class="section-intro">
-      Eight commands, no manifesto. Most days you'll use the first two.
+      Nine commands, no manifesto. Most days you'll use the first two.
     </p>
 
     <div class="cmd-grid">
@@ -420,6 +420,10 @@
       <div class="cmd-card">
         <div class="k">machine secrets <span class="sub">&lt;p&gt;</span></div>
         <div class="v">Show which 1Password items resolve into <code>/run/secrets</code> for this project.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine init</div>
+        <div class="v">First run only. Writes a starter <code>projects.toml</code> to <code>~/.config/machine/</code>.</div>
       </div>
     </div>
   </div>
@@ -517,10 +521,10 @@
       <div class="foot-col">
         <h5>// docs</h5>
         <ul>
+          <li><a href="https://github.com/katspaugh/machine#install">Install (Homebrew tap)</a></li>
           <li><a href="https://github.com/katspaugh/machine#quickstart">Quickstart</a></li>
           <li><a href="https://github.com/katspaugh/machine#setup">Configuration</a></li>
           <li><a href="https://github.com/katspaugh/machine#commands">CLI reference</a></li>
-          <li><a href="https://github.com/katspaugh/machine#verifying">Verifying</a></li>
         </ul>
       </div>
       <div class="foot-col">
@@ -545,8 +549,9 @@
         <h5>// elsewhere</h5>
         <ul>
           <li><a href="https://github.com/katspaugh/machine">GitHub</a></li>
+          <li><a href="https://github.com/katspaugh/homebrew-machine">Homebrew tap</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/docs/TAP.md">Release / verify</a></li>
           <li><a href="https://lima-vm.io/">Lima upstream</a></li>
-          <li><a href="https://github.com/katspaugh/machine#repository-layout">Repo layout</a></li>
         </ul>
       </div>
     </div>
