@@ -906,6 +906,75 @@ def _make_ps_row(
     )
 
 
+def _make_ps_row_json(
+    name: str,
+    project: dict | None,
+    lima_obj: dict,
+    info: dict,
+    active_ports: list[int],
+) -> dict:
+    """Build a single ps row as a JSON-friendly dict.
+
+    Raw machine-readable numbers (seconds / bytes / percent floats) — None
+    where a value is genuinely unknown. Parallel of `_make_ps_row` (which
+    produces the human table strings)."""
+    if not lima_obj:
+        status = "Missing"
+    else:
+        status = lima_obj.get("status") or "Missing"
+
+    is_running = status == "Running"
+    timed_out = info.get("_timed_out", False)
+
+    uptime_seconds: int | None = None
+    if is_running:
+        raw_uptime = lima_obj.get("uptime") or lima_obj.get("uptimeSeconds")
+        if isinstance(raw_uptime, (int, float)):
+            uptime_seconds = int(raw_uptime)
+
+    cpu_percent: float | None = None
+    if is_running and not timed_out and info.get("load1") is not None:
+        cpus = lima_obj.get("cpus") or 1
+        cpu_percent = round((info["load1"] / cpus) * 100, 2)
+
+    mem_used = mem_total = None
+    if is_running and not timed_out:
+        mem_used = info.get("mem_used_bytes")
+        mem_total = info.get("mem_total_bytes")
+
+    idle_seconds: int | None = None
+    if is_running and not timed_out and info.get("idle_seconds") is not None:
+        idle_seconds = int(info["idle_seconds"])
+
+    primary = _primary_repo_basename(project) if project else None
+    branch: str | None = None
+    if is_running and not timed_out:
+        b = info.get("branch")
+        if isinstance(b, str):
+            branch = b
+
+    profiles: list[str] = []
+    repos: list[str] = []
+    if isinstance(project, dict):
+        profiles = [p for p in (project.get("profiles") or []) if isinstance(p, str)]
+        repos = [r for r in (project.get("repos") or []) if isinstance(r, str)]
+
+    return {
+        "name": name,
+        "status": status,
+        "uptime_seconds": uptime_seconds,
+        "cpu_percent": cpu_percent,
+        "mem_used_bytes": mem_used,
+        "mem_total_bytes": mem_total,
+        "primary_repo": primary,
+        "branch": branch,
+        "idle_seconds": idle_seconds,
+        "ports": list(active_ports) if active_ports else [],
+        "profiles": profiles,
+        "repos": repos,
+    }
+
+
 def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict]) -> list[PsRow]:
     """Build rows for all projects (union of projects.toml and Lima VMs)."""
     project_names = [k for k, v in cfg.items() if isinstance(v, dict) and k != "default_profile"]
@@ -948,6 +1017,47 @@ def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict]) -> list[PsRow]:
     return rows
 
 
+def _build_ps_rows_json(cfg: dict, lima_vms: dict[str, dict]) -> list[dict]:
+    """JSON-shaped twin of _build_ps_rows."""
+    project_names = [k for k, v in cfg.items() if isinstance(v, dict) and k != "default_profile"]
+    all_names = list(dict.fromkeys([*project_names, *lima_vms.keys()]))
+
+    running = [n for n in all_names if lima_vms.get(n, {}).get("status") == "Running"]
+    info_futures: dict[str, dict] = {}
+    ports_futures: dict[str, list[int]] = {}
+
+    if running:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(running))) as pool:
+            info_tasks = {
+                n: pool.submit(_gather_running_vm_info, n, _primary_repo_basename(cfg.get(n)))
+                for n in running
+            }
+            port_tasks = {n: pool.submit(_gather_active_ports, n) for n in running}
+            for n, fut in info_tasks.items():
+                try:
+                    info_futures[n] = fut.result(timeout=5.0)
+                except concurrent.futures.TimeoutError:
+                    info_futures[n] = {"_timed_out": True}
+                except Exception:
+                    info_futures[n] = {}
+            for n, fut in port_tasks.items():
+                try:
+                    ports_futures[n] = fut.result(timeout=4.0)
+                except Exception:
+                    ports_futures[n] = []
+
+    return [
+        _make_ps_row_json(
+            name,
+            cfg.get(name),
+            lima_vms.get(name, {}),
+            info_futures.get(name, {}),
+            ports_futures.get(name, []),
+        )
+        for name in all_names
+    ]
+
+
 def _print_ps_table(rows: list[PsRow]) -> None:
     """Print the ps table with dynamic column widths."""
     headers = ["NAME", "STATUS", "UPTIME", "CPU", "MEM", "REPO", "IDLE", "PORTS"]
@@ -961,11 +1071,18 @@ def _print_ps_table(rows: list[PsRow]) -> None:
 
 def cmd_ps(args: argparse.Namespace) -> int:
     if not PROJECTS_FILE.is_file():
+        if getattr(args, "json", False):
+            print("[]")
+            return 0
         print(f"no {PROJECTS_FILE} — copy projects.toml.example and edit")
         return 0
     cfg = tomllib.loads(PROJECTS_FILE.read_text())
-
     lima_vms = _gather_lima_list_json()
+
+    if getattr(args, "json", False):
+        print(json.dumps(_build_ps_rows_json(cfg, lima_vms), indent=2))
+        return 0
+
     rows = _build_ps_rows(cfg, lima_vms)
     _print_ps_table(rows)
     return 0
@@ -1990,7 +2107,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", metavar="<command>")
 
     sub.add_parser("list", help="List projects from projects.toml with live VM status")
-    sub.add_parser("ps", help="Rich live-status table for all VMs (uptime, cpu/mem, repo, idle, ports)")
+    ps = sub.add_parser("ps", help="Rich live-status table for all VMs (uptime, cpu/mem, repo, idle, ports)")
+    ps.add_argument("--json", action="store_true",
+                    help="Emit machine-readable JSON instead of the table (used by machine.app)")
     sub.add_parser("doctor", help="Preflight: lima, git config, SSH agent, signing key, op CLI")
     sub.add_parser("validate", help="Schema-check projects.toml and referenced profiles (no VM)")
 
