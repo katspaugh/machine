@@ -1842,10 +1842,55 @@ def _existing_lima_vms() -> set[str]:
     return {line.strip() for line in out.stdout.splitlines() if line.strip()}
 
 
-def doctor_ssh_config(state: dict) -> None:
+class DoctorCollector:
+    """Collects doctor check results. In prose mode, prints each one as it
+    arrives (matching the historical format). In JSON mode, stays silent
+    until `cmd_doctor` formats the final payload."""
+
+    def __init__(self, json_mode: bool = False) -> None:
+        self.json_mode = json_mode
+        self.results: list[dict] = []
+        self._section: str | None = None
+
+    def section(self, label: str) -> None:
+        self._section = label
+        if not self.json_mode:
+            print(f"[doctor] {label}")
+
+    def ok(self, name: str, detail: str | None = None) -> None:
+        self.results.append({
+            "name": name, "status": "ok", "detail": detail, "hint": None,
+        })
+        if not self.json_mode:
+            suffix = f" — {detail}" if detail else ""
+            print(f"  ok  {name}{suffix}")
+
+    def fail(self, name: str, *, detail: str | None = None, hint: str | None = None) -> None:
+        self.results.append({
+            "name": name, "status": "fail", "detail": detail, "hint": hint,
+        })
+        if not self.json_mode:
+            suffix = f" — {detail}" if detail else ""
+            print(f"  FAIL {name}{suffix}", file=sys.stderr)
+            if hint:
+                print(f"       hint: {hint}", file=sys.stderr)
+
+    def warn(self, message: str) -> None:
+        """Section-internal warning, not a check result. Prose-only."""
+        if not self.json_mode:
+            print(f"  WARN  {message}", file=sys.stderr)
+
+    def summary(self) -> dict:
+        return {
+            "checks": len(self.results),
+            "fails": sum(1 for r in self.results if r["status"] == "fail"),
+        }
+
+
+def doctor_ssh_config(c: DoctorCollector) -> None:
     """Doctor section: report drift in the machine-managed block of
     ~/.ssh/config. All findings are WARN-level — never increment fails."""
-    print("[doctor] ssh-config")
+    c.section("ssh-config")
     path = SSH_CONFIG_PATH
 
     try:
@@ -1862,32 +1907,30 @@ def doctor_ssh_config(state: dict) -> None:
 
     if not path.is_file():
         if live_by_key:
-            print(
-                f"  WARN  managed block missing — ~/.ssh/config doesn't exist, "
-                f"run `machine up {next(iter(live_by_key))}` to install it",
-                file=sys.stderr,
+            c.warn(
+                f"managed block missing — ~/.ssh/config doesn't exist, "
+                f"run `machine up {next(iter(live_by_key))}` to install it"
             )
         else:
-            print("  ok  no VMs and no ssh config — nothing to do")
+            c.ok("no VMs and no ssh config — nothing to do")
         return
 
     text = path.read_text()
     try:
         splice_block(text, "")
     except DuplicateSentinelError as e:
-        print(f"  WARN  {e}", file=sys.stderr)
+        c.warn(f"{e}")
         return
 
     has_block = SSH_SENTINEL_OPEN in text
     if not has_block:
         if live_by_key:
-            print(
-                f"  WARN  managed block missing — run `machine up "
-                f"{next(iter(live_by_key))}` to install it",
-                file=sys.stderr,
+            c.warn(
+                f"managed block missing — run `machine up "
+                f"{next(iter(live_by_key))}` to install it"
             )
         else:
-            print("  ok  no VMs and no block — nothing to do")
+            c.ok("no VMs and no block — nothing to do")
         return
 
     start = text.index(SSH_SENTINEL_OPEN) + len(SSH_SENTINEL_OPEN)
@@ -1904,33 +1947,30 @@ def doctor_ssh_config(state: dict) -> None:
         )
         bare_vm = alias[len("machine-"):]
         if matched_key is None and bare_vm not in lima_vms:
-            print(
-                f"  WARN  entry '{alias}' points at a VM that no longer "
-                f"exists (orphan)",
-                file=sys.stderr,
+            c.warn(
+                f"entry '{alias}' points at a VM that no longer "
+                f"exists (orphan)"
             )
             issues += 1
             continue
         live = live_by_key.get(matched_key) if matched_key else None
         if live and live.get("Port") != fields.get("Port"):
-            print(
-                f"  WARN  entry '{alias}' port {fields.get('Port')} doesn't "
-                f"match Lima ({live.get('Port')}) — run `machine up {matched_key}`",
-                file=sys.stderr,
+            c.warn(
+                f"entry '{alias}' port {fields.get('Port')} doesn't "
+                f"match Lima ({live.get('Port')}) — run `machine up {matched_key}`"
             )
             issues += 1
 
     mode = path.stat().st_mode & 0o777
     if mode & 0o077:
-        print(
-            f"  WARN  ~/.ssh/config mode is {oct(mode)} — should be 0600 "
-            "(ssh may refuse to use it)",
-            file=sys.stderr,
+        c.warn(
+            f"~/.ssh/config mode is {oct(mode)} — should be 0600 "
+            "(ssh may refuse to use it)"
         )
         issues += 1
 
     if issues == 0:
-        print(f"  ok  managed block present ({len(block_entries)} entries)")
+        c.ok(f"managed block present ({len(block_entries)} entries)")
 
 
 # --- Init -----------------------------------------------------------------
@@ -1950,48 +1990,53 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 # --- Doctor ---------------------------------------------------------------
 def cmd_doctor(args: argparse.Namespace) -> int:
-    state = {"fails": 0, "checks": 0}
+    json_mode = getattr(args, "json", False)
+    c = DoctorCollector(json_mode=json_mode)
 
-    def check(label: str, fn: Any) -> None:
-        state["checks"] += 1
+    class _HintError(Exception):
+        def __init__(self, msg: str = "", hint: str | None = None) -> None:
+            super().__init__(msg)
+            self.hint = hint
+
+    def check(label: str, fn) -> None:
         try:
             fn()
-            print(f"  ok  {label}")
+            c.ok(label)
+        except _HintError as e:
+            c.fail(label, detail=str(e) or None, hint=e.hint)
         except Exception as e:
-            state["fails"] += 1
-            detail = str(e)
-            suffix = f" — {detail}" if detail else ""
-            print(f"  FAIL {label}{suffix}", file=sys.stderr)
+            c.fail(label, detail=str(e) or None)
 
-    def check_with_output(label: str, fn: Any) -> None:
-        state["checks"] += 1
+    def check_with_output(label: str, fn) -> None:
         try:
             out = fn()
-            print(f"  ok  {label} — {out}")
+            c.ok(label, detail=str(out) if out else None)
         except Exception as e:
-            state["fails"] += 1
-            print(f"  FAIL {label} — {e}", file=sys.stderr)
+            c.fail(label, detail=str(e) or None)
 
-    def must(cond: bool, msg: str = "") -> None:
+    def must(cond: bool, msg: str = "", hint: str | None = None) -> None:
         if not cond:
-            raise RuntimeError(msg or "missing")
+            raise _HintError(msg or "missing", hint=hint)
 
     def must_config(k: str) -> str:
         v = git_config(k)
         if not v:
-            raise RuntimeError("(unset)")
+            raise _HintError("(unset)", hint=f"git config --global {k} <value>")
         return v
 
-    print("[doctor] host")
-    check("limactl on PATH", lambda: must(bool(shutil.which("limactl"))))
+    c.section("host")
+    check("limactl on PATH", lambda: must(
+        bool(shutil.which("limactl")), hint="brew install lima"))
     check("python3 with tomllib", lambda: tomllib)
     check_with_output("git user.name", lambda: must_config("user.name"))
     check_with_output("git user.email", lambda: must_config("user.email"))
 
-    print("[doctor] ssh")
+    c.section("ssh")
     if os.environ.get("MACHINE_USE_1PASSWORD") == "1":
         sock = Path(os.environ.get("ONEPASS_SOCK") or ONEPASS_SOCK_DEFAULT)
-        check("1Password agent socket", lambda: must(sock.is_socket(), str(sock)))
+        check("1Password agent socket", lambda: must(
+            sock.is_socket(), str(sock),
+            hint="enable: 1Password → Settings → Developer → 'Use the SSH agent'"))
     if os.environ.get("SSH_AUTH_SOCK"):
         check("SSH agent reachable",
               lambda: subprocess.run(["ssh-add", "-l"], check=True,
@@ -1999,44 +2044,49 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                                      stderr=subprocess.DEVNULL))
         out = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True).stdout
         if not re.search(r"^(256|384|521|2048|3072|4096)", out, re.MULTILINE):
-            print(
-                "  WARN  no keys in agent — load one with `ssh-add "
-                "--apple-use-keychain ~/.ssh/id_ed25519`",
-                file=sys.stderr,
-            )
+            c.fail("ssh-agent has a key loaded",
+                   hint="ssh-add --apple-use-keychain ~/.ssh/id_ed25519")
+        else:
+            c.ok("ssh-agent has a key loaded")
     else:
-        state["checks"] += 1
-        state["fails"] += 1
-        print("  FAIL SSH_AUTH_SOCK unset", file=sys.stderr)
+        c.fail("SSH_AUTH_SOCK unset",
+               hint="start your SSH agent or set MACHINE_USE_1PASSWORD=1")
 
-    doctor_ssh_config(state)
+    doctor_ssh_config(c)   # writes its own section + ok/warn lines
 
-    print("[doctor] signing key")
-    state["checks"] += 1
+    c.section("signing key")
     try:
         sig = read_signing_key()
-        print(f"  ok  signing pubkey resolves ({len(sig)} bytes)")
+        c.ok("signing pubkey resolves", detail=f"{len(sig)} bytes")
     except SystemExit as e:
-        state["fails"] += 1
-        print(f"  FAIL signing pubkey — {e}", file=sys.stderr)
+        c.fail("signing pubkey resolves", detail=str(e) or None,
+               hint="set user.signingkey, GIT_SIGNING_KEY, or OP_SIGNING_KEY_REF")
 
     if os.environ.get("OP_SIGNING_KEY_REF") or (
         PROJECTS_FILE.is_file() and "op_env" in PROJECTS_FILE.read_text()
     ):
-        print("[doctor] 1Password")
-        check("op CLI installed", lambda: must(bool(shutil.which("op"))))
+        c.section("1Password")
+        check("op CLI installed", lambda: must(
+            bool(shutil.which("op")), hint="brew install 1password-cli"))
 
-    print("[doctor] config")
-    check("projects.toml present", lambda: must(PROJECTS_FILE.is_file(), str(PROJECTS_FILE)))
+    c.section("config")
+    check("projects.toml present", lambda: must(
+        PROJECTS_FILE.is_file(), str(PROJECTS_FILE),
+        hint=f"machine init  # creates {PROJECTS_FILE}"))
     if PROJECTS_FILE.is_file():
         check("projects.toml parses",
               lambda: tomllib.loads(PROJECTS_FILE.read_text()))
 
+    summary = c.summary()
+    if json_mode:
+        print(json.dumps({"checks": c.results, "summary": summary}, indent=2))
+        return 0 if summary["fails"] == 0 else 1
+
     print()
-    if state["fails"] > 0:
-        print(f"{state['fails']}/{state['checks']} checks failed", file=sys.stderr)
+    if summary["fails"] > 0:
+        print(f"{summary['fails']}/{summary['checks']} checks failed", file=sys.stderr)
         return 1
-    print(f"all {state['checks']} checks passed")
+    print(f"all {summary['checks']} checks passed")
     return 0
 
 
@@ -2141,7 +2191,9 @@ def build_parser() -> argparse.ArgumentParser:
     ps = sub.add_parser("ps", help="Rich live-status table for all VMs (uptime, cpu/mem, repo, idle, ports)")
     ps.add_argument("--json", action="store_true",
                     help="Emit machine-readable JSON instead of the table (used by machine.app)")
-    sub.add_parser("doctor", help="Preflight: lima, git config, SSH agent, signing key, op CLI")
+    doctor_p = sub.add_parser("doctor", help="Preflight: lima, git config, SSH agent, signing key, op CLI")
+    doctor_p.add_argument("--json", action="store_true",
+                          help="Emit machine-readable JSON {checks, summary} (used by machine.app)")
     sub.add_parser("validate", help="Schema-check projects.toml and referenced profiles (no VM)")
 
     init_p = sub.add_parser("init", help="Create projects.toml in MACHINE_CONFIG_DIR (~/.config/machine)")

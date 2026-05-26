@@ -396,12 +396,12 @@ class TestDoctorSshConfig(unittest.TestCase):
             if cmd[:2] == ["limactl", "list"]:
                 return _mock.Mock(returncode=0, stdout=list_stdout, stderr="")
             raise AssertionError(f"unexpected: {cmd}")
-        state = {"checks": 0, "fails": 0}
+        collector = m.DoctorCollector(json_mode=False)
         with _mock.patch.object(m, "load_projects", return_value=projects), \
              _mock.patch("subprocess.run", side_effect=fake_run), \
              _mock.patch("builtins.print", side_effect=lambda *a, **k: out.append(" ".join(str(x) for x in a))):
-            m.doctor_ssh_config(state)
-        return out, state
+            m.doctor_ssh_config(collector)
+        return out, collector
 
     def test_warns_when_block_missing_but_vm_exists(self):
         out, _ = self._run(
