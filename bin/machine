@@ -516,11 +516,47 @@ def ensure_golden_image() -> None:
 
 
 # --- Commands --------------------------------------------------------------
+def _build_list_json(cfg: dict) -> list[dict]:
+    """Static `projects.toml` view: one dict per project, config only."""
+    default_profile = cfg.get("default_profile")
+    out: list[dict] = []
+    for name, project in cfg.items():
+        if name in ("default_profile", "default_shell"):
+            continue
+        if not isinstance(project, dict):
+            continue
+        repos = [r for r in (project.get("repos") or []) if isinstance(r, str)]
+        explicit = project.get("profiles")
+        if isinstance(explicit, list):
+            profiles = [p for p in explicit if isinstance(p, str)]
+        elif default_profile:
+            profiles = [default_profile]
+        else:
+            profiles = []
+        primary = _primary_repo_basename(project)
+        out.append({
+            "name": name,
+            "repos": repos,
+            "primary_repo": primary,
+            "profiles": profiles,
+            "shell": project.get("shell"),
+        })
+    return out
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     if not PROJECTS_FILE.is_file():
+        if getattr(args, "json", False):
+            print("[]")
+            return 0
         print(f"no {PROJECTS_FILE} — copy projects.toml.example and edit")
         return 0
     cfg = tomllib.loads(PROJECTS_FILE.read_text())
+
+    if getattr(args, "json", False):
+        print(json.dumps(_build_list_json(cfg), indent=2))
+        return 0
+
     default = cfg.get("default_profile")
     # Live VM status, so a destroyed VM shows "—" instead of looking alive.
     proc = subprocess.run(
@@ -2099,7 +2135,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", metavar="<command>")
 
-    sub.add_parser("list", help="List projects from projects.toml with live VM status")
+    ls = sub.add_parser("list", help="List projects from projects.toml with live VM status")
+    ls.add_argument("--json", action="store_true",
+                    help="Emit machine-readable JSON of projects.toml (no VM probing)")
     ps = sub.add_parser("ps", help="Rich live-status table for all VMs (uptime, cpu/mem, repo, idle, ports)")
     ps.add_argument("--json", action="store_true",
                     help="Emit machine-readable JSON instead of the table (used by machine.app)")
