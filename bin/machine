@@ -771,28 +771,37 @@ def _format_duration_compact(seconds: float) -> str:
     return f"{d}d {h}h"
 
 
+def _vm_uptime_seconds(vm: str, lima_obj: dict) -> float | None:
+    """Best-effort uptime for `vm` in seconds, or None if unknown.
+
+    Source: ~/.lima/<vm>/ha.pid mtime if present, else lima_obj's
+    'created' timestamp. Shared by `_vm_uptime` (which formats) and
+    `_make_ps_row_json` (which emits raw seconds).
+    """
+    ha_pid = Path.home() / ".lima" / vm / "ha.pid"
+    if ha_pid.is_file():
+        try:
+            return time.time() - ha_pid.stat().st_mtime
+        except OSError:
+            pass
+    created = lima_obj.get("created")
+    if not created:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(created.replace("Z", "+00:00"))
+        return (datetime.datetime.now(tz=datetime.timezone.utc) - dt).total_seconds()
+    except ValueError:
+        return None
+
+
 def _vm_uptime(vm: str, lima_obj: dict) -> str | None:
     """Return formatted uptime string, e.g. '1h 12m', '22m'.
 
     Source: ha.pid mtime preferred; `created` field from limactl JSON fallback.
     """
-    ha_pid = Path.home() / ".lima" / vm / "ha.pid"
-    if ha_pid.is_file():
-        try:
-            delta = time.time() - ha_pid.stat().st_mtime
-        except OSError:
-            delta = None
-    else:
-        delta = None
+    delta = _vm_uptime_seconds(vm, lima_obj)
     if delta is None:
-        created = lima_obj.get("created")
-        if not created:
-            return None
-        try:
-            dt = datetime.datetime.fromisoformat(created.replace("Z", "+00:00"))
-            delta = (datetime.datetime.now(tz=datetime.timezone.utc) - dt).total_seconds()
-        except ValueError:
-            return None
+        return None
     return _format_duration_compact(delta)
 
 
@@ -928,8 +937,8 @@ def _make_ps_row_json(
 
     uptime_seconds: int | None = None
     if is_running:
-        raw_uptime = lima_obj.get("uptime") or lima_obj.get("uptimeSeconds")
-        if isinstance(raw_uptime, (int, float)):
+        raw_uptime = _vm_uptime_seconds(name, lima_obj)
+        if raw_uptime is not None:
             uptime_seconds = int(raw_uptime)
 
     cpu_percent: float | None = None
@@ -975,13 +984,17 @@ def _make_ps_row_json(
     }
 
 
-def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict]) -> list[PsRow]:
-    """Build rows for all projects (union of projects.toml and Lima VMs)."""
+def _gather_ps_data(
+    cfg: dict, lima_vms: dict[str, dict],
+) -> tuple[list[str], dict[str, dict], dict[str, list[int]]]:
+    """Collect the per-VM info / port data both row builders share.
+
+    Returns (all_names, info_by_name, ports_by_name).
+    """
     project_names = [k for k, v in cfg.items() if isinstance(v, dict) and k != "default_profile"]
     all_names = list(dict.fromkeys([*project_names, *lima_vms.keys()]))
 
     running = [n for n in all_names if lima_vms.get(n, {}).get("status") == "Running"]
-
     info_futures: dict[str, dict] = {}
     ports_futures: dict[str, list[int]] = {}
 
@@ -1005,47 +1018,27 @@ def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict]) -> list[PsRow]:
                 except Exception:
                     ports_futures[n] = []
 
-    rows: list[PsRow] = []
-    for name in all_names:
-        rows.append(_make_ps_row(
+    return all_names, info_futures, ports_futures
+
+
+def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict]) -> list[PsRow]:
+    """Build rows for all projects (union of projects.toml and Lima VMs)."""
+    all_names, info_futures, ports_futures = _gather_ps_data(cfg, lima_vms)
+    return [
+        _make_ps_row(
             name,
             cfg.get(name),
             lima_vms.get(name, {}),
             info_futures.get(name, {}),
             ports_futures.get(name, []),
-        ))
-    return rows
+        )
+        for name in all_names
+    ]
 
 
 def _build_ps_rows_json(cfg: dict, lima_vms: dict[str, dict]) -> list[dict]:
     """JSON-shaped twin of _build_ps_rows."""
-    project_names = [k for k, v in cfg.items() if isinstance(v, dict) and k != "default_profile"]
-    all_names = list(dict.fromkeys([*project_names, *lima_vms.keys()]))
-
-    running = [n for n in all_names if lima_vms.get(n, {}).get("status") == "Running"]
-    info_futures: dict[str, dict] = {}
-    ports_futures: dict[str, list[int]] = {}
-
-    if running:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(running))) as pool:
-            info_tasks = {
-                n: pool.submit(_gather_running_vm_info, n, _primary_repo_basename(cfg.get(n)))
-                for n in running
-            }
-            port_tasks = {n: pool.submit(_gather_active_ports, n) for n in running}
-            for n, fut in info_tasks.items():
-                try:
-                    info_futures[n] = fut.result(timeout=5.0)
-                except concurrent.futures.TimeoutError:
-                    info_futures[n] = {"_timed_out": True}
-                except Exception:
-                    info_futures[n] = {}
-            for n, fut in port_tasks.items():
-                try:
-                    ports_futures[n] = fut.result(timeout=4.0)
-                except Exception:
-                    ports_futures[n] = []
-
+    all_names, info_futures, ports_futures = _gather_ps_data(cfg, lima_vms)
     return [
         _make_ps_row_json(
             name,

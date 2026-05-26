@@ -1,6 +1,7 @@
 """Tests for the JSON output of `machine ps --json`."""
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import io
 import json
@@ -43,10 +44,12 @@ class TestMakePsRowJson(unittest.TestCase):
             "branch": "main",
             "idle_seconds": 180,
         }
-        with mock.patch.object(m, "_vm_uptime", return_value="2h 14m"):
+        with mock.patch.object(m, "_vm_uptime_seconds", return_value=8040.0):
             row = m._make_ps_row_json("blog", project, lima_obj, info, [3000, 5173])
         self.assertEqual(row["name"], "blog")
         self.assertEqual(row["status"], "Running")
+        self.assertEqual(row["uptime_seconds"], 8040)
+        self.assertIsInstance(row["uptime_seconds"], int)
         self.assertAlmostEqual(row["cpu_percent"], 10.0, places=1)
         self.assertEqual(row["mem_used_bytes"], 1_932_735_283)
         self.assertEqual(row["mem_total_bytes"], 8_589_934_592)
@@ -87,7 +90,7 @@ class TestMakePsRowJson(unittest.TestCase):
         project = {"repos": ["git@github.com:you/blog.git"]}
         lima_obj = {"status": "Running", "cpus": 4}
         info = {"_timed_out": True}
-        with mock.patch.object(m, "_vm_uptime", return_value="14m"):
+        with mock.patch.object(m, "_vm_uptime_seconds", return_value=840.0):
             row = m._make_ps_row_json("blog", project, lima_obj, info, [])
         self.assertEqual(row["status"], "Running")
         self.assertIsNone(row["cpu_percent"])
@@ -108,7 +111,7 @@ class TestCmdPsJson(unittest.TestCase):
              mock.patch.object(Path, "read_text", return_value=fake_cfg_text), \
              mock.patch.object(m, "_gather_lima_list_json", return_value={}), \
              mock.patch("sys.stdout", new_callable=io.StringIO) as fake_stdout:
-            rc = m.cmd_ps(mock.Mock(json=True))
+            rc = m.cmd_ps(argparse.Namespace(json=True))
         self.assertEqual(rc, 0)
         out = fake_stdout.getvalue()
         parsed = json.loads(out)
@@ -124,12 +127,19 @@ class TestCmdPsJson(unittest.TestCase):
              mock.patch.object(Path, "read_text", return_value=fake_cfg_text), \
              mock.patch.object(m, "_gather_lima_list_json", return_value={}), \
              mock.patch("sys.stdout", new_callable=io.StringIO) as fake_stdout:
-            m.cmd_ps(mock.Mock(json=False))
+            m.cmd_ps(argparse.Namespace(json=False))
         out = fake_stdout.getvalue()
         self.assertIn("NAME", out)
         self.assertIn("blog", out)
         with self.assertRaises(json.JSONDecodeError):
             json.loads(out)
+
+    def test_no_projects_toml_emits_empty_array(self):
+        with mock.patch.object(Path, "is_file", return_value=False), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            rc = m.cmd_ps(argparse.Namespace(json=True))
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out.getvalue()), [])
 
 
 if __name__ == "__main__":
