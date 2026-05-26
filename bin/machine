@@ -2044,10 +2044,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                                      stderr=subprocess.DEVNULL))
         out = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True).stdout
         if not re.search(r"^(256|384|521|2048|3072|4096)", out, re.MULTILINE):
-            c.fail("ssh-agent has a key loaded",
-                   hint="ssh-add --apple-use-keychain ~/.ssh/id_ed25519")
-        else:
-            c.ok("ssh-agent has a key loaded")
+            c.warn("no keys in agent — load one with "
+                   "`ssh-add --apple-use-keychain ~/.ssh/id_ed25519`")
     else:
         c.fail("SSH_AUTH_SOCK unset",
                hint="start your SSH agent or set MACHINE_USE_1PASSWORD=1")
