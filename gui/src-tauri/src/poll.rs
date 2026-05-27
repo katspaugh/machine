@@ -17,7 +17,11 @@ const BLURRED: Duration = Duration::from_secs(30);
 /// Poll `machine ps --json` forever, emitting `projects://updated` with the
 /// full Vec whenever it changes. Interval depends on window focus.
 pub fn start(app: AppHandle, focus: Arc<Focus>) {
-    tokio::spawn(async move {
+    // Spawn onto Tauri's managed (tokio) runtime — `setup` runs on the main
+    // thread with no ambient tokio reactor, so a bare tokio::spawn panics with
+    // "there is no reactor running". tauri::async_runtime is tokio-backed, so
+    // the tokio::time::sleep below still works inside the task.
+    tauri::async_runtime::spawn(async move {
         let mut last: Option<Vec<ProjectStatus>> = None;
         loop {
             match cli::run_json::<Vec<ProjectStatus>>(&["ps", "--json"]).await {

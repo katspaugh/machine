@@ -33,7 +33,9 @@ pub fn start(app: AppHandle, path: PathBuf) {
         let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
     }
 
-    tokio::spawn(async move {
+    // Spawn onto Tauri's managed (tokio) runtime; `setup` has no ambient tokio
+    // reactor, so a bare tokio::spawn would panic at startup.
+    tauri::async_runtime::spawn(async move {
         // Keep the watcher alive for the task's lifetime.
         let _keep = watcher;
         let want = path;

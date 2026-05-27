@@ -8,11 +8,16 @@ Requires Rust (`rustup`), Node ≥ 20, pnpm. From `gui/`:
 
 ```sh
 pnpm install
-MACHINE_BIN=../bin/machine pnpm tauri dev
+pnpm tauri dev
 ```
 
 In a dev build the backend resolves the CLI from `$MACHINE_BIN`, else
-`../../bin/machine` relative to `src-tauri/`, else `machine` on `PATH`.
+`../../bin/machine` relative to the crate (`src-tauri/`), else `machine` on
+`PATH`. The dev fallback is an absolute path baked in at compile time, so
+`pnpm tauri dev` alone finds the repo's own `bin/machine` — no env var needed.
+If you do set `$MACHINE_BIN`, use an **absolute** path: `cargo run` executes the
+app with its working directory at `src-tauri/`, so a relative value like
+`../bin/machine` resolves to the wrong place.
 `projects.toml` resolves via `$PROJECTS_FILE` / `$MACHINE_CONFIG_DIR`, else the
 repo checkout's `projects.toml`, else `~/.config/machine/projects.toml`.
 
