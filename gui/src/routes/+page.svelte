@@ -11,7 +11,7 @@
   import DoctorBanner from "$lib/components/DoctorBanner.svelte";
 
   let confirming = $state<{ project: string; action: "rebuild" | "destroy" } | null>(null);
-  let firstRun = $state(false);
+  let showAddModal = $state(false);
   let availableProfiles = $state<string[]>([]);
   let error = $state<string | null>(null);
   let unlistenProjects: (() => void) | null = null;
@@ -20,7 +20,7 @@
     try {
       $projects = await api.listProjects();
       if (!$selectedName && $projects.length) $selectedName = $projects[0].name;
-      if ($projects.length === 0) firstRun = true;
+      if ($projects.length === 0) showAddModal = true;
       availableProfiles = await api.listProfiles();
     } catch (e) { error = String(e); }
 
@@ -72,7 +72,7 @@
       await api.addProject(p.name, p.repo, p.profiles);
       $projects = await api.listProjects();
       $selectedName = p.name;
-      firstRun = false;
+      showAddModal = false;
     } catch (e) { error = String(e); }
   }
 </script>
@@ -82,12 +82,12 @@
 
 <div class="layout">
   <Sidebar projects={$projects} jobs={$jobs} selectedName={$selectedName}
-    onSelect={(n) => ($selectedName = n)} />
+    onSelect={(n) => ($selectedName = n)} onAdd={() => (showAddModal = true)} />
   {#if $selectedProject}
     <DetailPanel project={$selectedProject} jobs={$jobs}
       {onRun} {onConfirm} {onCancel} />
   {:else}
-    <EmptyState onAdd={() => (firstRun = true)} />
+    <EmptyState onAdd={() => (showAddModal = true)} />
   {/if}
 </div>
 
@@ -95,9 +95,9 @@
   <ConfirmDestroyModal project={confirming.project} action={confirming.action}
     onConfirm={confirmYes} onCancel={() => (confirming = null)} />
 {/if}
-{#if firstRun}
-  <FirstRunModal profiles={availableProfiles}
-    onSubmit={firstRunSubmit} onSkip={() => (firstRun = false)} />
+{#if showAddModal}
+  <FirstRunModal profiles={availableProfiles} firstRun={$projects.length === 0}
+    onSubmit={firstRunSubmit} onSkip={() => (showAddModal = false)} />
 {/if}
 
 <style>
