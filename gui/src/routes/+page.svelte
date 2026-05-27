@@ -66,7 +66,7 @@
   function confirmYes() {
     if (confirming) { startJob(confirming.project, confirming.action); confirming = null; }
   }
-  async function firstRunSubmit(p: { name: string; repo: string; profiles: string[] }) {
+  async function addProjectSubmit(p: { name: string; repo: string; profiles: string[] }) {
     error = null;
     try {
       await api.addProject(p.name, p.repo, p.profiles);
@@ -97,7 +97,7 @@
 {/if}
 {#if showAddModal}
   <FirstRunModal profiles={availableProfiles} firstRun={$projects.length === 0}
-    onSubmit={firstRunSubmit} onSkip={() => (showAddModal = false)} />
+    onSubmit={addProjectSubmit} onSkip={() => (showAddModal = false)} />
 {/if}
 
 <style>
