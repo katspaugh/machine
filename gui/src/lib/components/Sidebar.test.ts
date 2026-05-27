@@ -14,7 +14,7 @@ describe("Sidebar", () => {
     const onSelect = vi.fn();
     const { getByText } = render(Sidebar, {
       props: { projects: [p("wallet", "Running"), p("blog", "Stopped")],
-        jobs: new Map(), selectedName: "wallet", onSelect },
+        jobs: new Map(), selectedName: "wallet", onSelect, onAdd: () => {} },
     });
     await fireEvent.click(getByText("blog"));
     expect(onSelect).toHaveBeenCalledWith("blog");
@@ -23,7 +23,7 @@ describe("Sidebar", () => {
   it("marks the running project's LED", () => {
     const { container } = render(Sidebar, {
       props: { projects: [p("wallet", "Running")], jobs: new Map(),
-        selectedName: "wallet", onSelect: () => {} },
+        selectedName: "wallet", onSelect: () => {}, onAdd: () => {} },
     });
     expect(container.querySelector(".led.running")).not.toBeNull();
   });
