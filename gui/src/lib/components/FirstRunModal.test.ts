@@ -29,4 +29,20 @@ describe("FirstRunModal", () => {
     await fireEvent.input(getByLabelText(/repo/i), { target: { value: "x" } });
     expect(getByRole("button", { name: /create/i })).toBeDisabled();
   });
+
+  it("uses add-another wording when firstRun is false", () => {
+    const { getByRole } = render(FirstRunModal, {
+      props: { profiles: [], firstRun: false, onSubmit: () => {}, onSkip: () => {} },
+    });
+    expect(getByRole("heading", { name: "Add project" })).toBeTruthy();
+    expect(getByRole("button", { name: /cancel/i })).toBeTruthy();
+  });
+
+  it("defaults to first-run wording", () => {
+    const { getByRole } = render(FirstRunModal, {
+      props: { profiles: [], onSubmit: () => {}, onSkip: () => {} },
+    });
+    expect(getByRole("heading", { name: /add your first project/i })).toBeTruthy();
+    expect(getByRole("button", { name: /skip/i })).toBeTruthy();
+  });
 });

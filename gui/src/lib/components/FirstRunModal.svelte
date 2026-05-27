@@ -1,6 +1,7 @@
 <script lang="ts">
-  let { profiles, onSubmit, onSkip }: {
+  let { profiles, firstRun = true, onSubmit, onSkip }: {
     profiles: string[];
+    firstRun?: boolean;
     onSubmit: (p: { name: string; repo: string; profiles: string[] }) => void;
     onSkip: () => void;
   } = $props();
@@ -24,7 +25,7 @@
 
 <div class="backdrop">
   <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
-    <h2>Add your first project</h2>
+    <h2>{firstRun ? "Add your first project" : "Add project"}</h2>
     <label>Name
       <input bind:value={name} placeholder="my-project" autocomplete="off" />
     </label>
@@ -42,7 +43,7 @@
       </div>
     {/if}
     <div class="row">
-      <button onclick={onSkip}>Skip</button>
+      <button onclick={onSkip}>{firstRun ? "Skip" : "Cancel"}</button>
       <button class="primary" disabled={!valid} onclick={submit}>Create</button>
     </div>
   </div>
