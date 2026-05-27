@@ -27,4 +27,14 @@ describe("Sidebar", () => {
     });
     expect(container.querySelector(".led.running")).not.toBeNull();
   });
+
+  it("fires onAdd when the add button is clicked", async () => {
+    const onAdd = vi.fn();
+    const { getByRole } = render(Sidebar, {
+      props: { projects: [p("wallet", "Running")], jobs: new Map(),
+        selectedName: "wallet", onSelect: () => {}, onAdd },
+    });
+    await fireEvent.click(getByRole("button", { name: /add project/i }));
+    expect(onAdd).toHaveBeenCalled();
+  });
 });
