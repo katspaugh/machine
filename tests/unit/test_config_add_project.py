@@ -91,9 +91,11 @@ class TestCmdConfigAddProject(unittest.TestCase):
 
     def test_rejects_invalid_name(self):
         path = _tmp_projects("")
-        with mock.patch.object(m, "PROJECTS_FILE", path):
+        with mock.patch.object(m, "PROJECTS_FILE", path), \
+             mock.patch("sys.stderr", new_callable=io.StringIO) as err:
             with self.assertRaises(SystemExit):
                 m.cmd_config_add_project(self._args(name="Bad_Name"))
+        self.assertIn("invalid", err.getvalue().lower())
 
     def test_rejects_unknown_profile(self):
         path = _tmp_projects("")
@@ -111,9 +113,11 @@ class TestCmdConfigAddProject(unittest.TestCase):
 
     def test_rejects_empty_repo(self):
         path = _tmp_projects("")
-        with mock.patch.object(m, "PROJECTS_FILE", path):
+        with mock.patch.object(m, "PROJECTS_FILE", path), \
+             mock.patch("sys.stderr", new_callable=io.StringIO) as err:
             with self.assertRaises(SystemExit):
                 m.cmd_config_add_project(self._args(repo=""))
+        self.assertIn("--repo", err.getvalue())
 
     def test_output_is_idempotent_toml(self):
         path = _tmp_projects("")
@@ -126,6 +130,42 @@ class TestCmdConfigAddProject(unittest.TestCase):
         parsed = tomllib.loads(path.read_text())
         self.assertEqual(set(["a", "b", "c"]),
                          set(k for k, v in parsed.items() if isinstance(v, dict)))
+
+    def test_appends_to_file_without_trailing_newline(self):
+        path = _tmp_projects('[a]\nrepos = ["git@github.com:you/a.git"]')  # no trailing \n
+        with mock.patch.object(m, "PROJECTS_FILE", path):
+            rc = m.cmd_config_add_project(self._args(name="b", repo="git@github.com:you/b.git"))
+        self.assertEqual(rc, 0)
+        parsed = tomllib.loads(path.read_text())
+        self.assertIn("a", parsed)
+        self.assertIn("b", parsed)
+
+    def test_malicious_repo_does_not_inject_table(self):
+        """A repo value with quotes/backslashes round-trips as a single string —
+        no extra TOML table is created."""
+        path = _tmp_projects("")
+        evil = 'x"] [evil] repos = ["y'   # printable chars only (no real newline)
+        with mock.patch.object(m, "PROJECTS_FILE", path):
+            rc = m.cmd_config_add_project(self._args(name="safe", repo=evil))
+        self.assertEqual(rc, 0)
+        parsed = tomllib.loads(path.read_text())
+        self.assertNotIn("evil", parsed)
+        self.assertEqual(parsed["safe"]["repos"], [evil])
+
+    def test_control_char_in_repo_is_rejected_and_file_untouched(self):
+        """A real newline in --repo is rejected up front; existing file unchanged."""
+        initial = '[keep]\nrepos = ["git@github.com:you/keep.git"]\n'
+        path = _tmp_projects(initial)
+        with mock.patch.object(m, "PROJECTS_FILE", path), \
+             mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            with self.assertRaises(SystemExit):
+                m.cmd_config_add_project(self._args(name="bad", repo='x\n[evil]\nrepos=["y'))
+        self.assertIn("control character", err.getvalue().lower())
+        # The pre-existing file must be byte-for-byte unchanged.
+        self.assertEqual(path.read_text(), initial)
+        parsed = tomllib.loads(path.read_text())
+        self.assertNotIn("evil", parsed)
+        self.assertNotIn("bad", parsed)
 
 
 if __name__ == "__main__":

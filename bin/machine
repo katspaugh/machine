@@ -2186,6 +2186,8 @@ def cmd_config_add_project(args: argparse.Namespace) -> int:
     validate_name(name)
     if not repo:
         die("--repo is required and must be non-empty")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in repo):
+        die("--repo contains control characters (newline/tab/etc.) — not allowed")
 
     for p in profiles:
         if not NAME_RE.fullmatch(p):
@@ -2204,7 +2206,7 @@ def cmd_config_add_project(args: argparse.Namespace) -> int:
         existing_text = ""
         existing = {}
 
-    if name in existing and isinstance(existing[name], dict):
+    if name in existing:
         die(f"project {name!r} already exists in {PROJECTS_FILE}")
 
     block = _render_project_block(name, repo, profiles)
@@ -2213,13 +2215,14 @@ def cmd_config_add_project(args: argparse.Namespace) -> int:
     if existing_text and not existing_text.endswith("\n\n"):
         existing_text += "\n"
 
-    PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PROJECTS_FILE.write_text(existing_text + block)
-
+    new_content = existing_text + block
     try:
-        tomllib.loads(PROJECTS_FILE.read_text())
+        tomllib.loads(new_content)
     except tomllib.TOMLDecodeError as e:
-        die(f"{PROJECTS_FILE}: produced invalid TOML — {e}")
+        die(f"refusing to write invalid TOML to {PROJECTS_FILE}: {e}")
+
+    PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PROJECTS_FILE.write_text(new_content)
 
     print(f"added [{name}] to {PROJECTS_FILE}")
     return 0
