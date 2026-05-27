@@ -20,6 +20,7 @@ _machine() {
     'run:Run a non-interactive command in the VM'
     'secrets:Render 1Password Environment(s) into tmpfs'
     'update:Refresh in-place'
+    'config:Manage projects.toml (add-project)'
   )
 
   _arguments -C \
@@ -43,6 +44,14 @@ for n,v in cfg.items():
     if n != 'default_profile' and isinstance(v,dict): print(n)" 2>/dev/null)"} )
             _describe 'project' names
           fi
+          ;;
+        list|ps|doctor)
+          _arguments '--json[Machine-readable JSON output]'
+          ;;
+        config)
+          local -a actions
+          actions=('add-project:Append a project to projects.toml (refuses overwrite)')
+          _describe 'action' actions
           ;;
       esac
       ;;

@@ -9,7 +9,7 @@ _machine_complete() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-  local commands="list ps doctor validate up down ssh claude status destroy rebuild run secrets update"
+  local commands="list ps doctor validate up down ssh claude status destroy rebuild run secrets update config"
 
   if [ "$COMP_CWORD" -eq 1 ]; then
     COMPREPLY=($(compgen -W "$commands" -- "$cur"))
@@ -38,6 +38,12 @@ PY
         )
         COMPREPLY=($(compgen -W "$names" -- "$cur"))
       fi
+      ;;
+    list|ps|doctor)
+      COMPREPLY=($(compgen -W "--json" -- "$cur"))
+      ;;
+    config)
+      COMPREPLY=($(compgen -W "add-project" -- "$cur"))
       ;;
   esac
 }

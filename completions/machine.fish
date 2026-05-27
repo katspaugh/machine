@@ -12,7 +12,7 @@ for n, v in cfg.items():
     end
 end
 
-set -l cmds list ps doctor validate up down ssh claude status destroy rebuild run secrets update
+set -l cmds list ps doctor validate up down ssh claude status destroy rebuild run secrets update config
 
 complete -c machine -n "not __fish_seen_subcommand_from $cmds" -a "$cmds"
 
@@ -24,3 +24,5 @@ complete -c machine -n "__fish_seen_subcommand_from up rebuild" -l dry-run -d "P
 complete -c machine -n "__fish_seen_subcommand_from destroy rebuild" -s y -l force -d "Skip confirmation"
 complete -c machine -n "__fish_seen_subcommand_from update" -l reprovision -d "Re-apply TOML provisioning"
 complete -c machine -n "__fish_seen_subcommand_from secrets" -l clear -d "Wipe rendered secrets from VM tmpfs"
+complete -c machine -n "__fish_seen_subcommand_from list ps doctor" -l json -d "Machine-readable JSON output"
+complete -c machine -n "__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from add-project" -a add-project -d "Append a project to projects.toml (refuses overwrite)"

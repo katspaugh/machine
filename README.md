@@ -122,9 +122,9 @@ In VS Code → Remote-SSH: open the host picker, pick `machine-<project>`, then 
 
 | Command | What |
 |---|---|
-| `machine list` | List projects from `projects.toml` |
-| `machine ps` | Rich live-status table: per-VM uptime, CPU/mem, repo + branch, idle time, active host ports |
-| `machine doctor` | Preflight host checks: lima, git config, SSH agent, signing key, `op` CLI |
+| `machine list` | List projects from `projects.toml`. `--json` for machine-readable output. |
+| `machine ps` | Rich live-status table: per-VM uptime, CPU/mem, repo + branch, idle time, active host ports. `--json` for machine-readable output. |
+| `machine doctor` | Preflight host checks: lima, git config, SSH agent, signing key, `op` CLI. `--json` for machine-readable output. |
 | `machine validate` | Schema-check `projects.toml` and referenced profiles (no VM) |
 | `machine up <p>` | Create if needed, start, provision, clone the repo(s). Idempotent. `--dry-run` prints provision steps without executing. `--verbose` streams raw provisioner output; `--plain` disables the spinner (useful in CI). |
 | `machine down <p>` | Stop the VM |
@@ -137,6 +137,7 @@ In VS Code → Remote-SSH: open the host picker, pick `machine-<project>`, then 
 | `machine update <p>` | Refresh in-place: `apt upgrade`, npm globals, claude installer. `--reprovision` also re-applies TOML configs. |
 | `machine rebuild <p>` | **Destroys** the VM and rebuilds from scratch (reproducibility test). `-y` skips confirmation. |
 | `machine destroy <p>` | Delete the VM. `-y` skips confirmation. |
+| `machine config add-project <name> --repo <url> [--profile ...]` | Append a project to `projects.toml` (used by the GUI; refuses to overwrite). |
 
 ## Repository layout
 
