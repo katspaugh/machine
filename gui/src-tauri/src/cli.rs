@@ -129,19 +129,19 @@ pub async fn run_json_any_exit<T: DeserializeOwned>(args: &[&str]) -> Result<T, 
 mod tests {
     use super::*;
 
+    // Both behaviors live in one test on purpose: they mutate the process-global
+    // MACHINE_BIN, so splitting them into separate #[test]s lets cargo's parallel
+    // runner interleave set_var/remove_var and flake. One sequential test is
+    // deterministic without pulling in a serial-test crate.
     #[test]
-    fn machine_bin_honors_env() {
+    fn machine_bin_resolution() {
+        // $MACHINE_BIN wins when set.
         std::env::set_var("MACHINE_BIN", "/custom/machine");
         assert_eq!(machine_bin(), PathBuf::from("/custom/machine"));
-        std::env::remove_var("MACHINE_BIN");
-    }
 
-    #[test]
-    fn machine_bin_falls_back_to_path() {
+        // With it unset: release → bare "machine"; debug → dev path IF it exists.
+        // Both are acceptable — assert only that we get a non-empty path, no panic.
         std::env::remove_var("MACHINE_BIN");
-        // In a release build with no dev path, resolves to bare "machine".
-        // In debug, resolves to the dev path IF it exists; both are acceptable —
-        // assert only that we get a non-empty path and don't panic.
         let p = machine_bin();
         assert!(!p.as_os_str().is_empty());
     }

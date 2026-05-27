@@ -57,9 +57,15 @@ pub async fn spawn_lifecycle(
     if !ACTIONS.contains(&action.as_str()) {
         return Err(JobError::UnknownAction(action));
     }
+    let mut args = vec![action.clone(), project.clone()];
+    // --plain (disable the TTY spinner, one line per step) is only registered
+    // on the `up` subparser; down/update/destroy/rebuild reject unknown flags
+    // under argparse's strict parse_args, so never pass it to them.
+    if action == "up" {
+        args.push("--plain".to_string());
+    }
     // -y skips the CLI's own confirmation for destroy/rebuild (the GUI gates
     // that with its own modal in plan 2b).
-    let mut args = vec![action.clone(), project.clone(), "--plain".to_string()];
     if action == "destroy" || action == "rebuild" {
         args.push("-y".to_string());
     }
@@ -108,13 +114,14 @@ pub async fn spawn_lifecycle(
         let app = app.clone();
         let registry = registry.clone();
         tokio::spawn(async move {
-            // Re-take the child to await it (we stored it for cancel access).
-            let status = {
-                let mut guard = registry.children.lock().await;
-                match guard.remove(&id) {
-                    Some(mut c) => c.wait().await,
-                    None => return, // cancelled before we got here
-                }
+            // Take the child out of the registry, then DROP the lock before
+            // awaiting wait() — otherwise the mutex is held for the whole
+            // subprocess lifetime and cancel_job (and other spawns) would block
+            // on it, defeating cancellation.
+            let child = registry.children.lock().await.remove(&id);
+            let status = match child {
+                Some(mut c) => c.wait().await,
+                None => return, // cancelled before we got here
             };
             let code = status.ok().and_then(|s| s.code()).unwrap_or(-1);
             let _ = app.emit(&done_topic, DoneEvent {

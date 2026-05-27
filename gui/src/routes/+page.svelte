@@ -39,6 +39,9 @@
       };
       activeJob = job;
       $jobs = new Map($jobs).set(id, job);
+      // NOTE: these per-job listeners are intentionally not unlistened in this
+      // foundation slice — proper lifecycle/cleanup arrives with the LogPane
+      // component in plan 2b.
       await events.onJobLog(id, (e) => {
         job.lines = [...job.lines, { text: e.line, stream: e.stream }];
         activeJob = { ...job };
