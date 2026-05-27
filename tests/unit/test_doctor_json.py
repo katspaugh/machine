@@ -68,6 +68,18 @@ class TestDoctorCollector(unittest.TestCase):
             c.warn("watch out")
         self.assertEqual(out.getvalue(), "")
         self.assertEqual(err.getvalue(), "")
+        # warn() is prose-only — must not appear in results either.
+        self.assertEqual(len(c.results), 2)   # one ok + one fail
+
+    def test_warn_does_not_record(self):
+        """warn() is prose-only — never appended to results."""
+        c = m.DoctorCollector(json_mode=False)
+        with mock.patch("sys.stderr", new_callable=io.StringIO):
+            c.section("ssh-config")
+            c.warn("orphan entry")
+            c.ok("real check")
+        self.assertEqual(len(c.results), 1)
+        self.assertEqual(c.results[0]["name"], "real check")
 
     def test_prose_mode_prints(self):
         c = m.DoctorCollector(json_mode=False)
@@ -125,6 +137,55 @@ class TestCmdDoctorJson(unittest.TestCase):
             self.assertEqual(rc, 0)
         else:
             self.assertEqual(rc, 1)
+
+    def test_empty_ssh_agent_is_warn_not_fail(self):
+        """ssh-agent reachable but no keys loaded must NOT bump fails.
+        Regression test for 8fcc725: the Task 3 refactor briefly upgraded
+        this WARN to a c.fail, which flipped exit code from 0 to 1 for
+        users with an agent running but no keys."""
+        def fake_subprocess_run(argv, *a, **kw):
+            # ssh-add -l with no keys: stdout empty, returncode 1 (per ssh-agent man),
+            # but the doctor first calls ssh-add -l with check=True and DEVNULLs,
+            # then again with capture_output=True for stdout parsing.
+            # Make check=True succeed (agent reachable) but stdout empty (no keys).
+            if argv == ["ssh-add", "-l"] and kw.get("check"):
+                return mock.Mock(returncode=0)
+            if argv == ["ssh-add", "-l"]:
+                return mock.Mock(returncode=0, stdout="")   # no key lines
+            return mock.Mock(returncode=0, stdout="")
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(
+                m, "git_config",
+                side_effect=lambda k: {"user.name": "Jane Doe",
+                                       "user.email": "jane@example.com"}.get(k)))
+            stack.enter_context(mock.patch.object(
+                m, "read_signing_key", return_value="ssh-ed25519 AAAA..."))
+            stack.enter_context(mock.patch.dict(
+                os.environ, {"SSH_AUTH_SOCK": "/tmp/agent"}, clear=False))
+            stack.enter_context(mock.patch.object(
+                m, "doctor_ssh_config", lambda c: None))
+            stack.enter_context(mock.patch(
+                "subprocess.run", side_effect=fake_subprocess_run))
+            stack.enter_context(mock.patch.object(
+                m, "PROJECTS_FILE", REPO / "projects.toml.example"))
+            stack.enter_context(mock.patch(
+                "shutil.which", return_value="/usr/local/bin/limactl"))
+            out = stack.enter_context(
+                mock.patch("sys.stdout", new_callable=io.StringIO))
+            rc = m.cmd_doctor(argparse.Namespace(json=True))
+
+        payload = json.loads(out.getvalue())
+        # No "ssh-agent" check should appear in results — empty agent is WARN-only.
+        agent_fails = [r for r in payload["checks"]
+                       if r["status"] == "fail" and "ssh-agent" in r["name"].lower()]
+        self.assertEqual(agent_fails, [], "empty ssh-agent should not be a fail")
+        # The check that IS expected: 'SSH agent reachable' should be ok (we
+        # made ssh-add -l with check=True succeed). Confirm summary.fails reflects
+        # only legitimate failures (none from the empty-key path).
+        self.assertEqual(rc, 0)
+        self.assertEqual(payload["summary"]["fails"], 0,
+                         "all configured patches succeed; fails must be 0")
 
     def test_no_json_flag_prints_prose(self):
         with contextlib.ExitStack() as stack:
