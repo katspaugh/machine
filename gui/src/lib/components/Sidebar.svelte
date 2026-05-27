@@ -27,7 +27,7 @@
       <span class="led {ledClass(p)}"></span><span class="name">{p.name}</span>
     </button>
   {/each}
-    <button class="add" onclick={onAdd}>+ Add project</button>
+  <button class="add" onclick={onAdd}>+ Add project</button>
 </nav>
 
 <style>
