@@ -98,6 +98,24 @@ class TestMakePsRowJson(unittest.TestCase):
         self.assertIsNone(row["idle_seconds"])
         self.assertIsNone(row["branch"])
 
+    def test_profiles_resolves_default_profile(self):
+        project = {"repos": ["git@github.com:you/blog.git"]}  # no explicit profiles
+        row = m._make_ps_row_json("blog", project, {"status": "Stopped"}, {}, [],
+                                  default_profile="cypress")
+        self.assertEqual(row["profiles"], ["cypress"])
+
+    def test_profiles_empty_when_no_default(self):
+        project = {"repos": ["git@github.com:you/blog.git"]}
+        row = m._make_ps_row_json("blog", project, {"status": "Stopped"}, {}, [],
+                                  default_profile=None)
+        self.assertEqual(row["profiles"], [])
+
+    def test_explicit_profiles_override_default(self):
+        project = {"repos": ["x"], "profiles": ["go"]}
+        row = m._make_ps_row_json("p", project, {"status": "Stopped"}, {}, [],
+                                  default_profile="cypress")
+        self.assertEqual(row["profiles"], ["go"])
+
 
 class TestCmdPsJson(unittest.TestCase):
     def test_json_flag_prints_array(self):
@@ -140,6 +158,25 @@ class TestCmdPsJson(unittest.TestCase):
             rc = m.cmd_ps(argparse.Namespace(json=True))
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out.getvalue()), [])
+
+    def test_ps_and_list_json_agree_on_profiles(self):
+        import argparse, json as _json
+        fake_text = ('default_profile = "cypress"\n'
+                     '[blog]\nrepos = ["git@github.com:you/blog.git"]\n')
+        def run(cmd):
+            with mock.patch.object(m, "PROJECTS_FILE", Path("/tmp/x.toml")), \
+                 mock.patch.object(Path, "is_file", return_value=True), \
+                 mock.patch.object(Path, "read_text", return_value=fake_text), \
+                 mock.patch.object(m, "_gather_lima_list_json", return_value={}), \
+                 mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                cmd(argparse.Namespace(json=True))
+            return _json.loads(out.getvalue())
+        ps_rows = run(m.cmd_ps)
+        list_rows = run(m.cmd_list)
+        ps_blog = next(r for r in ps_rows if r["name"] == "blog")
+        list_blog = next(r for r in list_rows if r["name"] == "blog")
+        self.assertEqual(ps_blog["profiles"], list_blog["profiles"])
+        self.assertEqual(ps_blog["profiles"], ["cypress"])
 
 
 if __name__ == "__main__":

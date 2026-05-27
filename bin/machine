@@ -957,6 +957,7 @@ def _make_ps_row_json(
     lima_obj: dict,
     info: dict,
     active_ports: list[int],
+    default_profile: str | None = None,
 ) -> dict:
     """Build a single ps row as a JSON-friendly dict.
 
@@ -1001,7 +1002,13 @@ def _make_ps_row_json(
     profiles: list[str] = []
     repos: list[str] = []
     if isinstance(project, dict):
-        profiles = [p for p in (project.get("profiles") or []) if isinstance(p, str)]
+        explicit = project.get("profiles")
+        if isinstance(explicit, list):
+            profiles = [p for p in explicit if isinstance(p, str)]
+        elif default_profile:
+            profiles = [default_profile]
+        else:
+            profiles = []
         repos = [r for r in (project.get("repos") or []) if isinstance(r, str)]
 
     return {
@@ -1074,6 +1081,7 @@ def _build_ps_rows(cfg: dict, lima_vms: dict[str, dict]) -> list[PsRow]:
 
 def _build_ps_rows_json(cfg: dict, lima_vms: dict[str, dict]) -> list[dict]:
     """JSON-shaped twin of _build_ps_rows."""
+    default_profile = cfg.get("default_profile")
     all_names, info_futures, ports_futures = _gather_ps_data(cfg, lima_vms)
     return [
         _make_ps_row_json(
@@ -1082,6 +1090,7 @@ def _build_ps_rows_json(cfg: dict, lima_vms: dict[str, dict]) -> list[dict]:
             lima_vms.get(name, {}),
             info_futures.get(name, {}),
             ports_futures.get(name, []),
+            default_profile=default_profile,
         )
         for name in all_names
     ]
