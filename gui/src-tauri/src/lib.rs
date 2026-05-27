@@ -1,9 +1,12 @@
 mod cli;
 mod jobs;
+mod poll;
 mod types;
 
 use std::sync::Arc;
+use tauri::Manager;
 use jobs::{JobId, JobRegistry};
+use poll::Focus;
 use types::{DoctorReport, ProjectConfig, ProjectStatus};
 
 #[tauri::command]
@@ -66,6 +69,20 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(Arc::new(JobRegistry::default()))
+        .manage(Arc::new(Focus::default()))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let focus = app.state::<Arc<Focus>>().inner().clone();
+            poll::start(handle, focus);
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                if let Some(focus) = window.app_handle().try_state::<Arc<Focus>>() {
+                    focus.0.store(*focused, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             list_projects,
             list_config,
