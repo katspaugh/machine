@@ -21,6 +21,24 @@ async fn run_doctor() -> Result<DoctorReport, cli::CliError> {
     cli::run_json_any_exit(&["doctor", "--json"]).await
 }
 
+#[tauri::command]
+async fn add_project(
+    name: String,
+    repo: String,
+    profiles: Vec<String>,
+) -> Result<(), cli::CliError> {
+    let mut args: Vec<String> = vec![
+        "config".into(), "add-project".into(), name,
+        "--repo".into(), repo,
+    ];
+    for p in &profiles {
+        args.push("--profile".into());
+        args.push(p.clone());
+    }
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    cli::run_ok(&arg_refs).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -28,7 +46,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_projects,
             list_config,
-            run_doctor
+            run_doctor,
+            add_project
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
