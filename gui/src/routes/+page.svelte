@@ -1,156 +1,107 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { onMount, onDestroy } from "svelte";
+  import { api, events, type LifecycleAction, type JobId } from "$lib/tauri";
+  import { projects, selectedName, selectedProject, jobs } from "$lib/stores";
+  import type { JobState } from "$lib/stores";
 
-  let name = $state("");
-  let greetMsg = $state("");
+  let activeJob = $state<JobState | null>(null);
+  let error = $state<string | null>(null);
+  // An async onMount can't return the unlisten as a cleanup (Svelte expects a
+  // sync cleanup), so hold it and tear down in onDestroy.
+  let unlistenProjects: (() => void) | null = null;
 
-  async function greet(event: Event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
+  onMount(async () => {
+    try {
+      $projects = await api.listProjects();
+      if (!$selectedName && $projects.length) $selectedName = $projects[0].name;
+    } catch (e) {
+      error = String(e);
+    }
+    unlistenProjects = await events.onProjectsUpdated((rows) => {
+      $projects = rows;
+      // Keep selection valid; fall back to the first project if it vanished.
+      if ($selectedName && !rows.some((r) => r.name === $selectedName)) {
+        $selectedName = rows.length ? rows[0].name : null;
+      }
+    });
+  });
+
+  onDestroy(() => unlistenProjects?.());
+
+  async function run(action: LifecycleAction) {
+    const p = $selectedProject;
+    if (!p) return;
+    error = null;
+    try {
+      const id: JobId = await api.spawnLifecycle(p.name, action);
+      const job: JobState = {
+        id, project: p.name, action, lines: [], done: false, exitCode: null,
+      };
+      activeJob = job;
+      $jobs = new Map($jobs).set(id, job);
+      await events.onJobLog(id, (e) => {
+        job.lines = [...job.lines, { text: e.line, stream: e.stream }];
+        activeJob = { ...job };
+      });
+      await events.onJobDone(id, (e) => {
+        job.done = true;
+        job.exitCode = e.exit_code;
+        activeJob = { ...job };
+      });
+    } catch (e) {
+      error = String(e);
+    }
   }
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
+<main>
+  <h1>machine</h1>
+  {#if error}<p style="color:#c0392b">{error}</p>{/if}
 
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
+  <div style="display:flex; gap:1rem;">
+    <!-- sidebar -->
+    <ul style="list-style:none; padding:0; min-width:160px;">
+      {#each $projects as p (p.name)}
+        <li>
+          <button
+            onclick={() => ($selectedName = p.name)}
+            style="font-weight:{$selectedName === p.name ? 'bold' : 'normal'}">
+            {p.status === "Running" ? "●" : p.status === "Missing" ? "○" : "◐"} {p.name}
+          </button>
+        </li>
+      {/each}
+      {#if $projects.length === 0}<li>(no projects)</li>{/if}
+    </ul>
+
+    <!-- detail -->
+    <section style="flex:1">
+      {#if $selectedProject}
+        {@const p = $selectedProject}
+        <h2>{p.name} — {p.status}</h2>
+        <p>
+          profiles: {p.profiles.join(", ") || "—"} ·
+          repo: {p.primary_repo ?? "—"} ·
+          cpu: {p.cpu_percent ?? "—"}% ·
+          mem: {p.mem_used_bytes ?? "—"}/{p.mem_total_bytes ?? "—"} ·
+          ports: {p.ports.join(", ") || "—"}
+        </p>
+        <div style="display:flex; gap:.5rem;">
+          <button onclick={() => run("up")}>Up</button>
+          <button onclick={() => run("down")}>Down</button>
+          <button onclick={() => run("update")}>Update</button>
+          <button onclick={() => run("rebuild")}>Rebuild</button>
+          <button onclick={() => run("destroy")}>Destroy</button>
+          <button onclick={() => api.openLogs()}>Open logs</button>
+        </div>
+      {:else}
+        <p>Select a project.</p>
+      {/if}
+
+      {#if activeJob}
+        <h3>{activeJob.action} {activeJob.project}
+          {activeJob.done ? `(exit ${activeJob.exitCode})` : "(running…)"}</h3>
+        <pre style="background:#1e1e1e; color:#ddd; padding:.5rem; height:200px; overflow:auto;">{activeJob.lines.map((l) => l.text).join("\n")}</pre>
+      {/if}
+    </section>
   </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
-
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
 </main>
-
-<style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
-</style>
