@@ -1,0 +1,58 @@
+name: Release GUI
+
+# Builds the macOS app on tag pushes and attaches the universal DMG to the
+# GitHub Release. The CLI release (tap formula bump) is handled separately by
+# scripts/release.sh — this only produces the GUI artifact.
+#
+# Security note: this workflow takes no untrusted input. The only dynamic value
+# is the tag name, read from the auto-provided GITHUB_REF_NAME env var and only
+# ever passed as a quoted positional argument to `gh` — never interpolated into
+# a shell command.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # needed to create/update the Release and upload assets
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "9"
+
+      - name: Set up Rust (with universal targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Install frontend deps
+        working-directory: gui
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the universal app + DMG
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: gui
+          args: --target universal-apple-darwin
+
+      - name: Attach DMG to the Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The CLI release (scripts/release.sh) usually creates the Release
+          # first; create it here too if it doesn't exist yet, then upload.
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes || true
+          gh release upload "$GITHUB_REF_NAME" \
+            gui/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg \
+            --clobber
