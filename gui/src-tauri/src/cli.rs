@@ -21,6 +21,27 @@ pub fn machine_bin() -> PathBuf {
     PathBuf::from("machine")
 }
 
+/// Resolve projects.toml the same way the CLI does: $PROJECTS_FILE wins,
+/// else $MACHINE_CONFIG_DIR/projects.toml, else the dev checkout's
+/// projects.toml, else ~/.config/machine/projects.toml.
+pub fn projects_file() -> PathBuf {
+    if let Ok(p) = std::env::var("PROJECTS_FILE") {
+        return PathBuf::from(p);
+    }
+    if let Ok(dir) = std::env::var("MACHINE_CONFIG_DIR") {
+        return PathBuf::from(dir).join("projects.toml");
+    }
+    if cfg!(debug_assertions) {
+        let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../projects.toml");
+        if dev.exists() {
+            return dev;
+        }
+    }
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".config/machine/projects.toml")
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
     #[error("failed to spawn machine: {0}")]

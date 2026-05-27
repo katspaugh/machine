@@ -2,6 +2,7 @@ mod cli;
 mod jobs;
 mod poll;
 mod types;
+mod watcher;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -74,6 +75,8 @@ pub fn run() {
             let handle = app.handle().clone();
             let focus = app.state::<Arc<Focus>>().inner().clone();
             poll::start(handle, focus);
+            let handle2 = app.handle().clone();
+            watcher::start(handle2, cli::projects_file());
             Ok(())
         })
         .on_window_event(|window, event| {
