@@ -12,9 +12,25 @@
 
 ## Prerequisites
 
-- **Plan 2a must be merged** — this plan refactors `gui/src/App.svelte` and reuses `lib/tauri.ts`, `lib/stores.ts`, and the Rust commands.
+- **Plan 2a must be merged** — this plan refactors `gui/src/routes/+page.svelte` and reuses `$lib/tauri.ts`, `$lib/stores.ts`, and the Rust commands.
 - Same toolchain caveats as 2a: execute on macOS (or Linux-with-WebKitGTK for the non-macOS-specific parts). Commits are signed; the signing agent is intermittently flaky — retry on `communication with agent failed`, never `--no-gpg-sign`.
 - **Svelte 5 + Vitest API drift:** component-test setup (`@testing-library/svelte`, `vitest`, `jsdom`) and Svelte 5 runes are stable but verify against installed versions; each component task has a "run the test, confirm it passes" step that surfaces any mismatch.
+
+## SvelteKit adaptation (the 2a scaffold is SvelteKit, not plain Vite+Svelte)
+
+Plan 2a's `create-tauri-app` generated a **SvelteKit** app (adapter-static, SPA mode, `ssr = false`), not the plain Vite+Svelte layout this plan was originally drafted against. Apply these substitutions **throughout every task below**:
+
+1. **Components live in `gui/src/lib/components/`** (the original draft used a bare `src/components/` dir — ignore that). SvelteKit's `$lib` alias resolves to `gui/src/lib`, so `$lib/components/Foo.svelte` is the import path.
+2. **All imports use the `$lib` alias**, not relative `../lib/` or `./Sibling.svelte`. Concretely, in every code block below:
+   - `from "../lib/tauri"` → `from "$lib/tauri"`
+   - `from "../lib/stores"` → `from "$lib/stores"`
+   - `from "../lib/format"` → `from "$lib/format"`
+   - `from "./StatsBar.svelte"` (and any sibling component) → `from "$lib/components/StatsBar.svelte"`
+   - test files import the component under test by **relative** path (`./Foo.svelte`) since the test sits next to it in `lib/components/`, but import `$lib/...` for everything else.
+3. **The "App.svelte" composition (Task 12) is `gui/src/routes/+page.svelte`.** 2a already wrote the slice there; Task 12 rewrites that file. There is **no `gui/src/App.svelte`** and **no `gui/src/main.ts`**.
+4. **Global CSS (Task 13)** is wired via a new `gui/src/routes/+layout.svelte` importing `gui/src/app.css` — not a `main.ts` import.
+5. **Async `onMount` cleanup**: SvelteKit/Svelte expects a *synchronous* cleanup return from `onMount`. 2a's `+page.svelte` holds the unlisten in a variable and tears down in `onDestroy` — follow that pattern (do NOT `return un;` from an async `onMount`).
+6. **Vitest needs the `$lib` alias** resolved (Task 1 sets this up).
 
 ## Decisions carried into this plan
 
@@ -32,17 +48,20 @@
 | `gui/src/lib/format.ts` | Create | `formatBytes`, `formatDuration`, `formatPercent`, `formatMem`. |
 | `gui/src/lib/stores.ts` | Modify | Add `activeJobFor(project)` + `effectiveStatus(project, jobs)` derivations and the job-event ingestion helpers. |
 | `gui/src/lib/tauri.ts` | Modify | Add `listProfiles()`. |
-| `gui/src/components/Sidebar.svelte` | Create | Project list, status LED, selection. |
-| `gui/src/components/StatsBar.svelte` | Create | CPU/mem/idle/ports tiles. |
-| `gui/src/components/ActionsRow.svelte` | Create | Lifecycle buttons; collapses to Cancel while running; rebuild/destroy gate on the modal. |
-| `gui/src/components/LogPane.svelte` | Create | Streaming log, scroll-lock, jump-to-bottom, auto-collapse on success. |
-| `gui/src/components/DetailPanel.svelte` | Create | Header + StatsBar + ActionsRow + LogPane. |
-| `gui/src/components/ConfirmDestroyModal.svelte` | Create | Type-project-name-to-confirm. |
-| `gui/src/components/FirstRunModal.svelte` | Create | name/repo/profile form → `add_project`. |
-| `gui/src/components/EmptyState.svelte` | Create | Shown when there are no projects. |
-| `gui/src/components/DoctorBanner.svelte` | Create | Yellow banner + expandable drawer from `run_doctor`. |
-| `gui/src/app.css` | Modify | macOS styling: system font, hairline borders, LED colors, buttons. |
-| `gui/src/App.svelte` | Modify | Compose the components; remove the inline 2a slice. |
+| `gui/src/lib/components/Sidebar.svelte` | Create | Project list, status LED, selection. |
+| `gui/src/lib/components/StatsBar.svelte` | Create | CPU/mem/idle/ports tiles. |
+| `gui/src/lib/components/ActionsRow.svelte` | Create | Lifecycle buttons; collapses to Cancel while running; rebuild/destroy gate on the modal. |
+| `gui/src/lib/components/LogPane.svelte` | Create | Streaming log, scroll-lock, jump-to-bottom, auto-collapse on success. |
+| `gui/src/lib/components/DetailPanel.svelte` | Create | Header + StatsBar + ActionsRow + LogPane. |
+| `gui/src/lib/components/ConfirmDestroyModal.svelte` | Create | Type-project-name-to-confirm. |
+| `gui/src/lib/components/FirstRunModal.svelte` | Create | name/repo/profile form → `add_project`. |
+| `gui/src/lib/components/EmptyState.svelte` | Create | Shown when there are no projects. |
+| `gui/src/lib/components/DoctorBanner.svelte` | Create | Yellow banner + expandable drawer from `run_doctor`. |
+| `gui/src/app.css` | Create | macOS styling: system font, hairline borders, LED colors, buttons. |
+| `gui/src/routes/+layout.svelte` | Create | Imports `app.css` (SvelteKit global-style entry). |
+| `gui/src/routes/+page.svelte` | Modify | Compose the components; replace the inline 2a slice. |
+
+(Component test files `*.test.ts` sit next to each component in `gui/src/lib/components/`.)
 
 ---
 
@@ -59,12 +78,22 @@ pnpm add -D vitest @testing-library/svelte @testing-library/jest-dom jsdom @vite
 
 - [ ] **Step 1.2: Create `gui/vitest.config.ts`**
 
+SvelteKit tests need the `$lib` alias resolved (vitest doesn't know SvelteKit's aliases on its own). Map it to `src/lib`:
+
 ```ts
 import { defineConfig } from "vitest/config";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   plugins: [svelte({ hot: false })],
+  resolve: {
+    alias: {
+      $lib: fileURLToPath(new URL("./src/lib", import.meta.url)),
+    },
+    // Use the browser build of svelte in jsdom tests so $state/$effect work.
+    conditions: ["browser"],
+  },
   test: {
     environment: "jsdom",
     globals: true,
@@ -72,6 +101,8 @@ export default defineConfig({
   },
 });
 ```
+
+> **Verify (Step 1.5):** the `resolve.conditions: ["browser"]` line is what lets Testing Library mount Svelte 5 components under jsdom; if the installed `@testing-library/svelte` + vitest combo already handles this (some versions do via the svelte plugin), it's harmless. If component mounting fails with a "lifecycle_outside_component" or similar runes error, that condition (or `@testing-library/svelte`'s vitest plugin) is the fix point.
 
 - [ ] **Step 1.3: Create `gui/src/test-setup.ts`**
 
@@ -320,7 +351,7 @@ EOF
 
 ## Task 4: `StatsBar.svelte`
 
-**Files:** Create `gui/src/components/StatsBar.svelte`, `gui/src/components/StatsBar.test.ts`.
+**Files:** Create `gui/src/lib/components/StatsBar.svelte`, `gui/src/lib/components/StatsBar.test.ts`.
 
 Four tiles (CPU / Mem / Idle / Ports) using the Task 2 formatters. Pure presentational — takes a `ProjectStatus` prop.
 
@@ -392,7 +423,7 @@ describe("StatsBar", () => {
 
 ```bash
 cd /home/ivan.guest/code/machine
-git add gui/src/components/StatsBar.svelte gui/src/components/StatsBar.test.ts
+git add gui/src/lib/components/StatsBar.svelte gui/src/lib/components/StatsBar.test.ts
 git commit -m "$(cat <<'EOF'
 Add StatsBar component (CPU/mem/idle/ports tiles)
 
@@ -405,7 +436,7 @@ EOF
 
 ## Task 5: `LogPane.svelte`
 
-**Files:** Create `gui/src/components/LogPane.svelte`, `gui/src/components/LogPane.test.ts`.
+**Files:** Create `gui/src/lib/components/LogPane.svelte`, `gui/src/lib/components/LogPane.test.ts`.
 
 Renders a `JobState`'s lines. Scroll-locks to bottom unless the user scrolled up (then shows a "Jump to bottom" button). The scroll-lock decision is the testable logic — extract it as a pure helper so the test doesn't fight jsdom's layout.
 
@@ -508,7 +539,7 @@ describe("LogPane", () => {
 
 ```bash
 cd /home/ivan.guest/code/machine
-git add gui/src/components/LogPane.svelte gui/src/components/LogPane.test.ts
+git add gui/src/lib/components/LogPane.svelte gui/src/lib/components/LogPane.test.ts
 git commit -m "$(cat <<'EOF'
 Add LogPane with scroll-lock + jump-to-bottom
 
@@ -524,7 +555,7 @@ EOF
 
 ## Task 6: `ConfirmDestroyModal.svelte`
 
-**Files:** Create `gui/src/components/ConfirmDestroyModal.svelte`, `.test.ts`.
+**Files:** Create `gui/src/lib/components/ConfirmDestroyModal.svelte`, `.test.ts`.
 
 Type-the-name-to-confirm. Confirm button disabled until the typed text equals the project name. Emits `confirm` / `cancel` via callback props (Svelte 5 uses callback props, not `createEventDispatcher`).
 
@@ -620,7 +651,7 @@ describe("ConfirmDestroyModal", () => {
 
 ```bash
 cd /home/ivan.guest/code/machine
-git add gui/src/components/ConfirmDestroyModal.svelte gui/src/components/ConfirmDestroyModal.test.ts
+git add gui/src/lib/components/ConfirmDestroyModal.svelte gui/src/lib/components/ConfirmDestroyModal.test.ts
 git commit -m "$(cat <<'EOF'
 Add ConfirmDestroyModal (type-name-to-confirm)
 
@@ -636,7 +667,7 @@ EOF
 
 ## Task 7: `ActionsRow.svelte`
 
-**Files:** Create `gui/src/components/ActionsRow.svelte`, `.test.ts`.
+**Files:** Create `gui/src/lib/components/ActionsRow.svelte`, `.test.ts`.
 
 Lifecycle buttons. When a job is active for the project, the row collapses to a single **Cancel**. **Rebuild**/**Destroy** don't fire immediately — they request confirmation via a callback the parent wires to the modal. Up/Down/Update fire directly.
 
@@ -725,7 +756,7 @@ describe("ActionsRow", () => {
 
 ```bash
 cd /home/ivan.guest/code/machine
-git add gui/src/components/ActionsRow.svelte gui/src/components/ActionsRow.test.ts
+git add gui/src/lib/components/ActionsRow.svelte gui/src/lib/components/ActionsRow.test.ts
 git commit -m "$(cat <<'EOF'
 Add ActionsRow (lifecycle buttons, Cancel-while-running)
 
@@ -742,7 +773,7 @@ EOF
 
 ## Task 8: `Sidebar.svelte`
 
-**Files:** Create `gui/src/components/Sidebar.svelte`, `.test.ts`.
+**Files:** Create `gui/src/lib/components/Sidebar.svelte`, `.test.ts`.
 
 Project list with a status LED (color keyed by effective status) and click-to-select. Takes `projects`, `jobs`, `selectedName`, and an `onSelect` callback.
 
@@ -837,7 +868,7 @@ describe("Sidebar", () => {
 
 ```bash
 cd /home/ivan.guest/code/machine
-git add gui/src/components/Sidebar.svelte gui/src/components/Sidebar.test.ts
+git add gui/src/lib/components/Sidebar.svelte gui/src/lib/components/Sidebar.test.ts
 git commit -m "$(cat <<'EOF'
 Add Sidebar (project list, effective-status LED, selection)
 
@@ -850,7 +881,7 @@ EOF
 
 ## Task 9: `list_profiles` command + `DetailPanel.svelte`
 
-**Files:** Modify `gui/src-tauri/src/cli.rs`, `gui/src-tauri/src/lib.rs`, `gui/src/lib/tauri.ts`; create `gui/src/components/DetailPanel.svelte`, `.test.ts`.
+**Files:** Modify `gui/src-tauri/src/cli.rs`, `gui/src-tauri/src/lib.rs`, `gui/src/lib/tauri.ts`; create `gui/src/lib/components/DetailPanel.svelte`, `.test.ts`.
 
 `list_profiles` (needed by Task 10's FirstRunModal) lists profile basenames. `DetailPanel` composes the header + StatsBar + ActionsRow + LogPane and owns the per-project confirm-modal gating.
 
@@ -1016,7 +1047,7 @@ describe("DetailPanel", () => {
 
 ```bash
 cd /home/ivan.guest/code/machine
-git add gui/src-tauri gui/src/lib/tauri.ts gui/src/components/DetailPanel.svelte gui/src/components/DetailPanel.test.ts
+git add gui/src-tauri gui/src/lib/tauri.ts gui/src/lib/components/DetailPanel.svelte gui/src/lib/components/DetailPanel.test.ts
 git commit -m "$(cat <<'EOF'
 Add list_profiles command and DetailPanel composition
 
@@ -1033,7 +1064,7 @@ EOF
 
 ## Task 10: `FirstRunModal.svelte` + `EmptyState.svelte`
 
-**Files:** Create `gui/src/components/FirstRunModal.svelte`, `.test.ts`, `gui/src/components/EmptyState.svelte`.
+**Files:** Create `gui/src/lib/components/FirstRunModal.svelte`, `.test.ts`, `gui/src/lib/components/EmptyState.svelte`.
 
 First-run/empty: name (validated `^[a-z0-9][a-z0-9-]*$`), repo URL (non-empty), profile (multi-select from `list_profiles`). Submit → `add_project`. EmptyState wraps it with "Reveal in Finder" / "Docs" affordances.
 
@@ -1180,7 +1211,7 @@ describe("FirstRunModal", () => {
 
 ```bash
 cd /home/ivan.guest/code/machine
-git add gui/src/components/FirstRunModal.svelte gui/src/components/FirstRunModal.test.ts gui/src/components/EmptyState.svelte
+git add gui/src/lib/components/FirstRunModal.svelte gui/src/lib/components/FirstRunModal.test.ts gui/src/lib/components/EmptyState.svelte
 git commit -m "$(cat <<'EOF'
 Add FirstRunModal + EmptyState
 
@@ -1197,7 +1228,7 @@ EOF
 
 ## Task 11: `DoctorBanner.svelte`
 
-**Files:** Create `gui/src/components/DoctorBanner.svelte`, `.test.ts`.
+**Files:** Create `gui/src/lib/components/DoctorBanner.svelte`, `.test.ts`.
 
 Runs `run_doctor` on mount; if `summary.fails > 0`, shows a yellow banner; clicking expands a drawer listing failed checks + hints.
 
@@ -1290,7 +1321,7 @@ describe("DoctorBanner", () => {
 
 ```bash
 cd /home/ivan.guest/code/machine
-git add gui/src/components/DoctorBanner.svelte gui/src/components/DoctorBanner.test.ts
+git add gui/src/lib/components/DoctorBanner.svelte gui/src/lib/components/DoctorBanner.test.ts
 git commit -m "$(cat <<'EOF'
 Add DoctorBanner (run_doctor on mount, expandable failures)
 
@@ -1301,31 +1332,32 @@ EOF
 
 ---
 
-## Task 12: Compose everything in `App.svelte` + job-event ingestion
+## Task 12: Compose everything in `+page.svelte` + job-event ingestion
 
-**Files:** Modify `gui/src/App.svelte`.
+**Files:** Modify `gui/src/routes/+page.svelte` (the file 2a created).
 
-Replace the 2a inline slice with the components. Owns: initial load, `projects://updated` subscription, job spawning + event ingestion into the `jobs` store, the confirm-modal and first-run-modal gating, and auto-collapse-on-success.
+Replace the 2a inline slice with the components. Owns: initial load, `projects://updated` subscription, job spawning + event ingestion into the `jobs` store, the confirm-modal and first-run-modal gating. Async listener cleanup uses `onDestroy` (Svelte requires a *sync* cleanup from `onMount`), matching the pattern 2a established in this file.
 
-- [ ] **Step 12.1: Rewrite `App.svelte`**
+- [ ] **Step 12.1: Rewrite `gui/src/routes/+page.svelte`**
 
 ```svelte
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { api, events, type LifecycleAction, type JobId } from "./lib/tauri";
+  import { onMount, onDestroy } from "svelte";
+  import { api, events, type LifecycleAction, type JobId } from "$lib/tauri";
   import { projects, selectedName, selectedProject, jobs, activeJobFor,
-    type JobState } from "./lib/stores";
-  import Sidebar from "./components/Sidebar.svelte";
-  import DetailPanel from "./components/DetailPanel.svelte";
-  import EmptyState from "./components/EmptyState.svelte";
-  import FirstRunModal from "./components/FirstRunModal.svelte";
-  import ConfirmDestroyModal from "./components/ConfirmDestroyModal.svelte";
-  import DoctorBanner from "./components/DoctorBanner.svelte";
+    type JobState } from "$lib/stores";
+  import Sidebar from "$lib/components/Sidebar.svelte";
+  import DetailPanel from "$lib/components/DetailPanel.svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import FirstRunModal from "$lib/components/FirstRunModal.svelte";
+  import ConfirmDestroyModal from "$lib/components/ConfirmDestroyModal.svelte";
+  import DoctorBanner from "$lib/components/DoctorBanner.svelte";
 
   let confirming = $state<{ project: string; action: "rebuild" | "destroy" } | null>(null);
   let firstRun = $state(false);
   let availableProfiles = $state<string[]>([]);
   let error = $state<string | null>(null);
+  let unlistenProjects: (() => void) | null = null;
 
   onMount(async () => {
     try {
@@ -1335,14 +1367,15 @@ Replace the 2a inline slice with the components. Owns: initial load, `projects:/
       availableProfiles = await api.listProfiles();
     } catch (e) { error = String(e); }
 
-    const un = await events.onProjectsUpdated((rows) => {
+    unlistenProjects = await events.onProjectsUpdated((rows) => {
       $projects = rows;
       if ($selectedName && !rows.some((r) => r.name === $selectedName)) {
         $selectedName = rows.length ? rows[0].name : null;
       }
     });
-    return un;
   });
+
+  onDestroy(() => unlistenProjects?.());
 
   async function startJob(project: string, action: LifecycleAction) {
     error = null;
@@ -1446,9 +1479,9 @@ Expected: all green.
 
 ```bash
 cd /home/ivan.guest/code/machine
-git add gui/src/App.svelte
+git add gui/src/routes/+page.svelte
 git commit -m "$(cat <<'EOF'
-Compose the full UI in App.svelte
+Compose the full UI in +page.svelte
 
 Replaces the 2a slice: Sidebar + DetailPanel + EmptyState, with
 job-event ingestion into the jobs store, confirm-modal gating for
@@ -1467,7 +1500,7 @@ EOF
 
 Define the CSS variables the components reference and the macOS look (system font, hairline borders, subtle backgrounds). This is visual — verified by eye, not by test.
 
-- [ ] **Step 13.1: Replace `gui/src/app.css`**
+- [ ] **Step 13.1: Create `gui/src/app.css`**
 
 ```css
 :root {
@@ -1501,23 +1534,41 @@ button { font-family: inherit; color: inherit; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 ```
 
-- [ ] **Step 13.2: Ensure `app.css` is imported** — confirm `gui/src/main.ts` has `import "./app.css";` (the scaffold usually does; add it if missing).
+- [ ] **Step 13.2: Wire `app.css` via a `+layout.svelte`**
 
-- [ ] **Step 13.3: Visual check**
+SvelteKit has no `main.ts`; global styles are imported from a layout. Create `gui/src/routes/+layout.svelte` (it coexists with the existing `+layout.ts`):
+
+```svelte
+<script lang="ts">
+  import "../../app.css";
+  let { children } = $props();
+</script>
+
+{@render children()}
+```
+
+(`../../app.css` resolves from `src/routes/` to `src/app.css`. The `{@render children()}` is the Svelte 5 slot form a layout needs so the page still renders.)
+
+- [ ] **Step 13.3: Fix the window title in `app.html`**
+
+The scaffold left `<title>Tauri + SvelteKit + Typescript App</title>` in `gui/src/app.html`. Change it to `<title>machine</title>`.
+
+- [ ] **Step 13.4: Visual check**
 
 `MACHINE_BIN=../bin/machine pnpm tauri dev` — confirm: system font, hairline sidebar divider, LED colors (green/grey/red/amber), selected row highlight, dark-mode follows the OS. Compare against the mockup from brainstorming (layout option A).
 
-- [ ] **Step 13.4: Commit**
+- [ ] **Step 13.5: Commit**
 
 ```bash
 cd /home/ivan.guest/code/machine
-git add gui/src/app.css gui/src/main.ts
+git add gui/src/app.css gui/src/routes/+layout.svelte gui/src/app.html
 git commit -m "$(cat <<'EOF'
 Add macOS styling pass (CSS variables, light/dark)
 
 Defines the design tokens the components reference: system font,
 hairline borders, tile/selection colors, and a dark-mode palette that
-follows the OS.
+follows the OS. Wires app.css via +layout.svelte and fixes the window
+title.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
