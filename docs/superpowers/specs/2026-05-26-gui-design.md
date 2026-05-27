@@ -202,4 +202,14 @@ gui/
 - **Electron** — ruled out for the ~150MB Chromium bundle and heavier toolchain; nothing the renderer needs requires a specific Chromium feature.
 - **Local-server + browser** (`machine gui` opens a localhost URL) — ruled out because launching from a terminal command defeats the "first-class for new users" goal. Could ship in parallel for headless/remote use if a future need appears.
 - **Long-running `machine` daemon over a Unix socket** — overkill for a 2s polling loop. Worth revisiting only if we add live event streaming deeper than per-job stdout.
+
+## Plan 1 → Plan 2 carry-forward (discovered during plan-1 implementation)
+
+The CLI JSON surface shipped in plan 1. A few contract gaps the Rust side must account for:
+
+- **`status` never emits `"Provisioning"`.** `ps --json` passes Lima's status through verbatim (`Running`/`Stopped`/…) and falls back to `"Missing"` when Lima doesn't know the VM. The CLI never computes `Provisioning` — the GUI must derive it from active-job state (a VM with a running `up`/`rebuild` job is "Provisioning"). The Rust `status` type must tolerate **unknown strings** (use `String` or a non-exhaustive enum), since Lima can emit transient states like `Broken`.
+- **`doctor --json` drops all WARN-level findings.** `DoctorCollector.warn()` is prose/stderr-only and is NOT recorded in the `checks` array. So ssh-config drift (orphan entries, port mismatch, loose `~/.ssh/config` mode, missing managed block) and the "agent running but no keys loaded" case produce **zero** JSON entries. If the GUI doctor banner needs to surface these, plan 2 requires a CLI change adding a third `"warn"` status to the doctor JSON schema.
+- **`doctor --json` `name` fields are not all stable identifiers.** Most are stable (`limactl on PATH`, `git user.name`), but some are condition phrases that only appear in one outcome (`SSH_AUTH_SOCK unset` exists only when unset; when set you get `SSH agent reachable` instead). The GUI cannot match a single check identity across both states by `name`. If banner logic needs stable identity, request `id` fields in a later CLI change rather than matching on `name`.
+- **`shell` is in `list --json` but not `ps --json`** (intentional, per the respective shapes) — the Rust `ProjectConfig` carries `shell`, `ProjectStatus` does not.
+- **`profiles` is resolved identically in both `ps --json` and `list --json`** (explicit list wins, else `[default_profile]`, else `[]`) — reconciled in plan 1 so the two commands agree for the same project.
 - **GUI parses `projects.toml` directly in Rust** — duplicates the schema and merge logic that lives in `bin/machine` and `provision/run.py`. Cheaper short-term, expensive long-term as the CLI evolves.
