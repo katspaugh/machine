@@ -77,6 +77,12 @@ class TestGatherLimaListJson(unittest.TestCase):
         result = self._run(f"not-json\n{good}\nalso-bad\n")
         self.assertEqual(list(result.keys()), ["ok"])
 
+    def test_limactl_not_on_path_returns_empty(self):
+        """limactl absent (FileNotFoundError) degrades to {}, not a traceback —
+        so `ps --json` stays well-formed on a host where lima isn't installed."""
+        with mock.patch("subprocess.run", side_effect=FileNotFoundError):
+            self.assertEqual(m._gather_lima_list_json(), {})
+
 
 # ---------------------------------------------------------------------------
 # _format_duration_compact

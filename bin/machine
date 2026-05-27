@@ -590,10 +590,16 @@ def _gather_lima_list_json() -> dict[str, dict]:
     limactl list --json emits one JSON object per line (JSONL). This function
     also tolerates a single JSON array as a fallback.
     """
-    proc = subprocess.run(
-        ["limactl", "list", "--json"],
-        capture_output=True, text=True,
-    )
+    try:
+        proc = subprocess.run(
+            ["limactl", "list", "--json"],
+            capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        # limactl not on PATH — degrade to "no VMs known" so JSON consumers
+        # get a clean empty result instead of a traceback. Mirrors the
+        # returncode-failure guard below.
+        return {}
     if proc.returncode != 0:
         return {}
     out: dict[str, dict] = {}
