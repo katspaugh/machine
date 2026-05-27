@@ -58,6 +58,36 @@ pub fn log_dir() -> PathBuf {
         .join(".local/state/machine/logs")
 }
 
+pub const BUNDLED_PROFILES: &[&str] =
+    &["cypress", "python", "rust", "go", "supabase-fly"];
+
+/// Available profile names. In a dev checkout, read profiles/*.toml; otherwise
+/// fall back to the known bundled set. (A future CLI `profiles --json` command
+/// would let this stop guessing — tracked for a later pass.)
+pub fn list_profile_names() -> Vec<String> {
+    if cfg!(debug_assertions) {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../profiles");
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            let mut names: Vec<String> = entries
+                .flatten()
+                .filter_map(|e| {
+                    let p = e.path();
+                    if p.extension()?.to_str()? == "toml" {
+                        Some(p.file_stem()?.to_string_lossy().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            names.sort();
+            if !names.is_empty() {
+                return names;
+            }
+        }
+    }
+    BUNDLED_PROFILES.iter().map(|s| s.to_string()).collect()
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
     #[error("failed to spawn machine: {0}")]
@@ -144,5 +174,11 @@ mod tests {
         std::env::remove_var("MACHINE_BIN");
         let p = machine_bin();
         assert!(!p.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn list_profile_names_nonempty() {
+        // Dev checkout has profiles/*.toml; release falls back to BUNDLED_PROFILES.
+        assert!(!list_profile_names().is_empty());
     }
 }

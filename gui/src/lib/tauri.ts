@@ -48,6 +48,7 @@ export const api = {
     invoke<JobId>("spawn_lifecycle", { project, action }),
   cancelJob: (jobId: JobId) => invoke<void>("cancel_job", { jobId }),
   openLogs: () => invoke<void>("open_logs"),
+  listProfiles: () => invoke<string[]>("list_profiles"),
 };
 
 export interface LogEvent { line: string; stream: "stdout" | "stderr" }

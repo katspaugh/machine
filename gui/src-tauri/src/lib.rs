@@ -66,6 +66,11 @@ async fn cancel_job(
 }
 
 #[tauri::command]
+fn list_profiles() -> Vec<String> {
+    cli::list_profile_names()
+}
+
+#[tauri::command]
 async fn open_logs() -> Result<(), String> {
     let dir = cli::log_dir();
     // macOS: reveal the dir in Finder. (Linux/Windows handled in a later pass.)
@@ -112,7 +117,8 @@ pub fn run() {
             add_project,
             spawn_lifecycle,
             cancel_job,
-            open_logs
+            open_logs,
+            list_profiles
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
