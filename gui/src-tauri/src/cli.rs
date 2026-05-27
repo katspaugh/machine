@@ -70,6 +70,24 @@ pub async fn run_ok(args: &[&str]) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Like run_json but tolerates a non-zero exit (e.g. `doctor` exits 1 when
+/// checks fail yet still prints a valid JSON report on stdout).
+pub async fn run_json_any_exit<T: DeserializeOwned>(args: &[&str]) -> Result<T, CliError> {
+    let out = Command::new(machine_bin())
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .await?;
+    // Prefer parsing stdout; only surface a process error if stdout is empty.
+    if out.stdout.is_empty() && !out.status.success() {
+        return Err(CliError::NonZero {
+            code: out.status.code().unwrap_or(-1),
+            stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        });
+    }
+    Ok(serde_json::from_slice(&out.stdout)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
