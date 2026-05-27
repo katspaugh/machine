@@ -2163,6 +2163,68 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _toml_quote(s: str) -> str:
+    """Quote a string for TOML basic-string output. Only handles values we
+    actually emit (URLs, identifiers, profile names) — no multi-line, no
+    raw strings."""
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _render_project_block(name: str, repo: str, profiles: list[str]) -> str:
+    lines = [f"[{name}]", f"repos = [{_toml_quote(repo)}]"]
+    if profiles:
+        rendered = ", ".join(_toml_quote(p) for p in profiles)
+        lines.append(f"profiles = [{rendered}]")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_config_add_project(args: argparse.Namespace) -> int:
+    name = args.name
+    repo = (args.repo or "").strip()
+    profiles = list(args.profile or [])
+
+    validate_name(name)
+    if not repo:
+        die("--repo is required and must be non-empty")
+
+    for p in profiles:
+        if not NAME_RE.fullmatch(p):
+            die(f"invalid profile name: {p!r}")
+        path = REPO / "profiles" / f"{p}.toml"
+        if not path.exists():
+            die(f"profile {p!r} not found: {path} does not exist")
+
+    if PROJECTS_FILE.is_file():
+        existing_text = PROJECTS_FILE.read_text()
+        try:
+            existing = tomllib.loads(existing_text)
+        except tomllib.TOMLDecodeError as e:
+            die(f"{PROJECTS_FILE}: parse error before append: {e}")
+    else:
+        existing_text = ""
+        existing = {}
+
+    if name in existing and isinstance(existing[name], dict):
+        die(f"project {name!r} already exists in {PROJECTS_FILE}")
+
+    block = _render_project_block(name, repo, profiles)
+    if existing_text and not existing_text.endswith("\n"):
+        existing_text += "\n"
+    if existing_text and not existing_text.endswith("\n\n"):
+        existing_text += "\n"
+
+    PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PROJECTS_FILE.write_text(existing_text + block)
+
+    try:
+        tomllib.loads(PROJECTS_FILE.read_text())
+    except tomllib.TOMLDecodeError as e:
+        die(f"{PROJECTS_FILE}: produced invalid TOML — {e}")
+
+    print(f"added [{name}] to {PROJECTS_FILE}")
+    return 0
+
+
 # --- Argparse plumbing -----------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -2242,7 +2304,22 @@ def build_parser() -> argparse.ArgumentParser:
     bake_p.add_argument("--force", action="store_true",
                         help="Rebuild even if the hash is fresh")
 
+    config_p = sub.add_parser("config", help="Manage projects.toml (machine-driven; the GUI calls this)")
+    config_sub = config_p.add_subparsers(dest="config_action", metavar="<action>")
+    add_p = config_sub.add_parser("add-project", help="Append a project to projects.toml (refuses overwrite)")
+    add_p.add_argument("name", help="Project (VM) name; lowercase a-z, 0-9, hyphen")
+    add_p.add_argument("--repo", required=True, help="Primary git remote (e.g., git@github.com:you/repo.git)")
+    add_p.add_argument("--profile", action="append", default=[],
+                       metavar="NAME", help="Profile to attach (repeatable)")
+
     return p
+
+
+def cmd_config(args: argparse.Namespace) -> int:
+    action = getattr(args, "config_action", None)
+    if action == "add-project":
+        return cmd_config_add_project(args)
+    die("machine config requires an action (e.g., add-project)")
 
 
 COMMANDS = {
@@ -2262,6 +2339,7 @@ COMMANDS = {
     "secrets": cmd_secrets,
     "update": cmd_update,
     "bake": cmd_bake,
+    "config": cmd_config,
 }
 
 
