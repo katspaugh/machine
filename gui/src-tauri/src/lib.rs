@@ -65,6 +65,25 @@ async fn cancel_job(
     Ok(())
 }
 
+#[tauri::command]
+async fn open_logs() -> Result<(), String> {
+    let dir = cli::log_dir();
+    // macOS: reveal the dir in Finder. (Linux/Windows handled in a later pass.)
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Best-effort: rely on Tauri's opener in 2b, or xdg-open here.
+        let _ = &dir;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -92,7 +111,8 @@ pub fn run() {
             run_doctor,
             add_project,
             spawn_lifecycle,
-            cancel_job
+            cancel_job,
+            open_logs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

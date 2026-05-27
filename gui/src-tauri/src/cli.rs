@@ -42,6 +42,22 @@ pub fn projects_file() -> PathBuf {
         .join(".config/machine/projects.toml")
 }
 
+/// The machine provisioning log directory (mirrors the CLI's STATE_DIR/logs).
+pub fn log_dir() -> PathBuf {
+    if let Ok(d) = std::env::var("MACHINE_STATE_DIR") {
+        return PathBuf::from(d).join("logs");
+    }
+    if cfg!(debug_assertions) {
+        let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.build/logs");
+        if dev.exists() {
+            return dev;
+        }
+    }
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".local/state/machine/logs")
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
     #[error("failed to spawn machine: {0}")]
