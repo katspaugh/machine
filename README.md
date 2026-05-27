@@ -16,6 +16,18 @@ brew install katspaugh/machine/machine
 
 The formula pulls in `lima` and `python@3.12`. The tap repo is [katspaugh/homebrew-machine](https://github.com/katspaugh/homebrew-machine); each release is pinned to a tagged tarball + SHA256. See [docs/TAP.md](docs/TAP.md) for the release runbook.
 
+### Desktop app (optional)
+
+A macOS GUI is available as a cask (it installs the CLI as a dependency):
+
+```sh
+brew install --cask katspaugh/machine/machine-gui
+```
+
+This drops `machine.app` in `/Applications` — a Docker-Desktop-style dashboard for your projects (status, up/down/update/rebuild/destroy, live provisioning logs). The CLI remains the primary interface; the GUI is a convenience surface over it.
+
+> The app is ad-hoc signed (no paid Apple Developer account yet). Installing via the cask is the supported path — Homebrew clears the quarantine flag so it opens normally. Downloading the DMG manually from the Releases page will trip Gatekeeper (right-click → Open, or `xattr -dr com.apple.quarantine /Applications/machine.app`).
+
 Prefer to run from a clone (dev mode)? Skip the brew install and:
 
 ```sh
