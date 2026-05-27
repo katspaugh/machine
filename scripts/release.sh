@@ -20,6 +20,39 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TAP_REMOTE="git@github.com:katspaugh/homebrew-machine.git"
 TAP_DIR="${TMPDIR:-/tmp}/release-homebrew-machine.$$"
 TAR_URL="https://github.com/katspaugh/machine/archive/refs/tags/$TAG.tar.gz"
+DMG_URL="https://github.com/katspaugh/machine/releases/download/$TAG/machine_${VERSION}_universal.dmg"
+
+# Bump the reference GUI cask once CI has built and uploaded the DMG. Non-fatal:
+# the macOS build runs asynchronously (a few minutes), so if the DMG isn't up
+# yet we print next steps and return without failing the release.
+bump_cask() {
+  echo "==> waiting for GUI DMG (up to ~10 min): $DMG_URL"
+  local sha=""
+  for _ in $(seq 1 60); do
+    if sha="$(curl -fsSL "$DMG_URL" 2>/dev/null | shasum -a 256 | awk '{print $1}')" \
+       && [ -n "$sha" ]; then
+      break
+    fi
+    sleep 10
+  done
+  if [ -z "$sha" ]; then
+    echo "    DMG not available yet — bump Casks/machine-gui.rb manually once the"
+    echo "    Release GUI workflow finishes (see docs/TAP.md)."
+    return 0
+  fi
+  sed -i.bak -E \
+    -e "s|^  version \"[^\"]*\"|  version \"$VERSION\"|" \
+    -e "s|^  sha256 \"[a-f0-9]{64}\"|  sha256 \"$sha\"|" \
+    Casks/machine-gui.rb
+  rm -f Casks/machine-gui.rb.bak
+  echo "    bumped Casks/machine-gui.rb -> $VERSION / $sha"
+  if ! git diff --quiet Casks/machine-gui.rb; then
+    git add Casks/machine-gui.rb
+    git commit -m "Bump machine-gui cask to $TAG"
+    git push origin HEAD
+  fi
+  echo "    now copy Casks/machine-gui.rb into the tap and push (see docs/TAP.md)"
+}
 
 cd "$REPO_DIR"
 
@@ -74,6 +107,9 @@ cp Formula/machine.rb "$TAP_DIR/Formula/machine.rb"
 # 5. GitHub Release with auto notes
 echo "==> creating GitHub release $TAG"
 gh release create "$TAG" --title "$TAG" --generate-notes
+
+# 6. Bump the GUI cask once CI uploads the DMG (non-fatal).
+bump_cask
 
 echo
 echo "✓ released $TAG"
