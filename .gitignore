@@ -20,3 +20,4 @@ gui/build/
 gui/.svelte-kit/
 gui/src-tauri/target/
 gui/src-tauri/gen/schemas/
+.pnpm-store/
