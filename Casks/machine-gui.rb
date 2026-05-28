@@ -2,7 +2,7 @@
 # katspaugh/homebrew-machine — copy this file into its Casks/ dir and bump
 # version/sha256 on each release. See docs/TAP.md.
 cask "machine-gui" do
-  version "0.1.4"
+  version "0.1.6"
   sha256 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
   url "https://github.com/katspaugh/machine/releases/download/v#{version}/machine_#{version}_universal.dmg"
