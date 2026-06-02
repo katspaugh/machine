@@ -97,5 +97,22 @@ class TestHelpers(unittest.TestCase):
             self.m.render_template("wallet", ["nope"], golden=False)
 
 
+class TestZeroConfig(unittest.TestCase):
+    """Behavior with no projects.toml at all (zero-config mode)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.m = load_machine({
+            "PROJECTS_FILE": str(Path(self.tmp.name) / "projects.toml"),
+            "MACHINE_STATE_DIR": str(Path(self.tmp.name) / "state"),
+        })
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_load_projects_missing_file_returns_empty(self):
+        self.assertEqual(self.m.load_projects(), {})
+
+
 if __name__ == "__main__":
     unittest.main()

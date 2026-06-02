@@ -91,10 +91,7 @@ def configure_ssh_agent() -> None:
 # --- Projects TOML helpers -------------------------------------------------
 def load_projects() -> dict[str, Any]:
     if not PROJECTS_FILE.is_file():
-        die(
-            f"{PROJECTS_FILE} not found. "
-            f"Run `machine init` (or copy {REPO / 'projects.toml.example'} to {PROJECTS_FILE} and edit)."
-        )
+        return {}
     return tomllib.loads(PROJECTS_FILE.read_text())
 
 
