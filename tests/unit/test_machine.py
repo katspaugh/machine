@@ -3,6 +3,7 @@ import importlib.util
 import os
 import tempfile
 import unittest
+from unittest import mock
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
@@ -102,6 +103,11 @@ class TestHelpers(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.m.render_template("wallet", ["nope"], golden=False)
 
+    def test_resolve_up_known_project(self):
+        urls, profiles = self.m.resolve_up_target(self.m.load_projects(), "blog")
+        self.assertEqual(urls, ["git@github.com:me/blog.git"])
+        self.assertEqual(profiles, ["cypress"])
+
 
 class TestZeroConfig(unittest.TestCase):
     """Behavior with no projects.toml at all (zero-config mode)."""
@@ -118,6 +124,41 @@ class TestZeroConfig(unittest.TestCase):
 
     def test_load_projects_missing_file_returns_empty(self):
         self.assertEqual(self.m.load_projects(), {})
+
+    def test_resolve_up_default_never_prompts(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch("builtins.input", side_effect=AssertionError("prompted")):
+            urls, profiles = self.m.resolve_up_target({}, "default")
+        self.assertEqual((urls, profiles), ([], []))
+
+    def test_resolve_up_unknown_name_accepted(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch("builtins.input", return_value="y"):
+            urls, profiles = self.m.resolve_up_target({}, "scratch")
+        self.assertEqual((urls, profiles), ([], []))
+
+    def test_resolve_up_unknown_name_declined(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch("builtins.input", return_value=""):
+            with self.assertRaises(SystemExit):
+                self.m.resolve_up_target({}, "scratch")
+
+    def test_resolve_up_unknown_name_eof_aborts(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch("builtins.input", side_effect=EOFError):
+            with self.assertRaises(SystemExit):
+                self.m.resolve_up_target({}, "scratch")
+
+    def test_resolve_up_existing_vm_skips_prompt(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=True), \
+             mock.patch("builtins.input", side_effect=AssertionError("prompted")):
+            urls, profiles = self.m.resolve_up_target({}, "scratch")
+        self.assertEqual((urls, profiles), ([], []))
+
+    def test_resolve_up_ad_hoc_honors_default_profile(self):
+        urls, profiles = self.m.resolve_up_target(
+            {"default_profile": "cypress"}, "default")
+        self.assertEqual((urls, profiles), ([], ["cypress"]))
 
 
 if __name__ == "__main__":

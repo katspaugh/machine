@@ -448,12 +448,35 @@ def clone_repo(vm: str, url: str) -> None:
 
 
 # --- Commands ----------------------------------------------------------------
+def confirm_create(name: str) -> None:
+    """Gate ad-hoc VM creation behind a y/N prompt (typo safety)."""
+    try:
+        ans = input(f"No project '{name}' in {PROJECTS_FILE} — create a base VM? [y/N] ")
+    except EOFError:
+        ans = ""
+    if ans != "y":
+        die("aborted")
+
+
+def resolve_up_target(cfg: dict[str, Any], name: str) -> tuple[list[str], list[str]]:
+    """(urls, profiles) for `machine up`.
+
+    Names not in the config become ad-hoc base VMs: no repos, profiles from
+    `default_profile`. Creation is confirmed first, except for the implicit
+    'default' VM and VMs that already exist (re-`up` stays non-interactive).
+    """
+    if isinstance(cfg.get(name), dict):
+        return project_urls(name), project_profiles(name)
+    if name != "default" and not vm_exists(name):
+        confirm_create(name)
+    return [], default_profiles(cfg)
+
+
 def cmd_up(args: argparse.Namespace) -> int:
     name = args.project
     validate_name(name)
+    urls, profiles = resolve_up_target(load_projects(), name)
     close_lima_ssh_master(name)
-    urls = project_urls(name)
-    profiles = project_profiles(name)
     verify_repos_reachable(urls)
 
     if not vm_exists(name):
