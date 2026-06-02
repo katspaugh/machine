@@ -106,13 +106,17 @@ def project_urls(name: str) -> list[str]:
     return list(get_project(load_projects(), name).get("repos", []))
 
 
+def default_profiles(cfg: dict[str, Any]) -> list[str]:
+    """Top-level `default_profile` as a profile list ([] if unset/empty)."""
+    default = cfg.get("default_profile")
+    return [default] if default else []
+
+
 def project_profiles(name: str) -> list[str]:
     cfg = load_projects()
-    project = get_project(cfg, name)
-    profiles = project.get("profiles")
+    profiles = get_project(cfg, name).get("profiles")
     if profiles is None:
-        default = cfg.get("default_profile")
-        profiles = [default] if default else []
+        profiles = default_profiles(cfg)
     return [p for p in profiles if p]
 
 

@@ -55,6 +55,12 @@ class TestHelpers(unittest.TestCase):
             self.m.validate_name("Bad_Name")
         self.m.validate_name("ok-name-2")  # no raise
 
+    def test_default_profiles(self):
+        self.assertEqual(self.m.default_profiles({}), [])
+        self.assertEqual(
+            self.m.default_profiles({"default_profile": "cypress"}), ["cypress"])
+        self.assertEqual(self.m.default_profiles({"default_profile": ""}), [])
+
     def test_project_profiles_default_and_explicit(self):
         self.assertEqual(self.m.project_profiles("blog"), ["cypress"])
         self.assertEqual(self.m.project_profiles("wallet"), ["cypress", "supabase-fly"])
