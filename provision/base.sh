@@ -34,7 +34,10 @@ add_repo nodesource https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
   "https://deb.nodesource.com/node_22.x nodistro main"
 
 # --- Packages ----------------------------------------------------------------
-apt-get update -qq
+# Non-fatal: an offline re-boot of an already-provisioned VM must not fail
+# the boot probe. If packages are genuinely missing, the install below
+# still fails fast.
+apt-get update -qq || true
 apt-get install -y --no-install-recommends \
   build-essential ca-certificates curl gnupg jq xz-utils unzip git zsh fish \
   ripgrep fd-find tmux less file python3 direnv \
