@@ -218,7 +218,7 @@ is no separate config format to learn.
 - **`cypress`** — Cypress runtime libs + Chrome (amd64) or Chromium (arm64), Xvfb.
 - **`playwright`** — OS deps for Playwright's browsers (via `playwright install-deps`);
   browser binaries stay per-repo (`npx playwright install`, no sudo needed).
-- **`supabase-fly`** — Supabase CLI (GitHub release tarball) + flyctl (vendor installer).
+- **`supabase-fly`** — Supabase CLI (GitHub `.deb` release) + flyctl (vendor installer).
 
 To add a profile: copy an existing `templates/<name>.yaml`, point it at a new
 `provision/<name>.sh`, and reference the profile name in `projects.toml`. Scripts run as

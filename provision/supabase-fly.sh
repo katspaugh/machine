@@ -1,17 +1,25 @@
 #!/bin/bash
-# Supabase CLI (GitHub release tarball) + flyctl (vendor installer).
+# Supabase CLI (.deb release artifact) + flyctl (vendor installer).
 # Idempotent; runs on every boot. Verify runs only at install time.
 set -eu -o pipefail
 
 ARCH=$(dpkg --print-architecture)
 
-if [ ! -x /usr/local/bin/supabase ]; then
+# The .deb assets are version-stamped (no `latest` filename alias like the
+# tarballs), so resolve the latest tag from the release-page redirect —
+# plain HTTP, no GitHub API rate limits. `command -v` (not a path test)
+# keeps the guard true for older VMs with the tarball-era /usr/local binary.
+if ! command -v supabase >/dev/null 2>&1; then
+  tag=$(curl -fsSLo /dev/null -w '%{url_effective}' \
+    https://github.com/supabase/cli/releases/latest)
+  tag=${tag##*/}                  # .../releases/tag/v2.104.0 → v2.104.0
+  version=${tag#v}
   tmp=$(mktemp -d)
-  curl -fsSL "https://github.com/supabase/cli/releases/latest/download/supabase_linux_${ARCH}.tar.gz" \
-    | tar -xz -C "$tmp"
-  install -m 0755 "$tmp/supabase" /usr/local/bin/supabase
+  curl -fsSL -o "$tmp/supabase.deb" \
+    "https://github.com/supabase/cli/releases/download/${tag}/supabase_${version}_linux_${ARCH}.deb"
+  apt-get install -y "$tmp/supabase.deb"
   rm -rf "$tmp"
-  /usr/local/bin/supabase --version
+  supabase --version
 fi
 
 if [ ! -x /usr/local/bin/flyctl ]; then
