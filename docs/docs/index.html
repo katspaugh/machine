@@ -241,7 +241,7 @@
 <span class="prompt">$ </span>direnv allow</code></pre>
         <p>Then on the host:</p>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine secrets &lt;project&gt;               <span class="cmt"># syncs every .envrc using `use op_env` in that VM</span>
-<span class="prompt">$ </span>machine secrets &lt;project&gt; &lt;repo&gt;        <span class="cmt"># narrow to one repo within a multi-repo project</span></code></pre>
+<span class="prompt">$ </span>machine secrets &lt;project&gt; --repo &lt;repo&gt; <span class="cmt"># narrow to one repo within a multi-repo project</span></code></pre>
         <p>
           <code>machine secrets</code> reads the Environment from 1Password (Touch ID), pipes the rendered <code>KEY=value</code> pairs into the VM,
           and writes them to <code>$XDG_RUNTIME_DIR/dev-secrets/&lt;env-id&gt;.env</code> — tmpfs, mode 600, gone on reboot. The <code>op_env</code> direnv

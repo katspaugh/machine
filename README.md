@@ -94,8 +94,7 @@ signing key requires a recreate (params are fixed when the VM is created).
 
 ### SSH config
 
-Lima writes a per-VM SSH config at `~/.lima/<project>/ssh.config`. To use
-plain `ssh` / IDE remote extensions, add one line to `~/.ssh/config`:
+Lima writes a per-VM SSH config at `~/.lima/<project>/ssh.config`. Add one line to `~/.ssh/config`:
 
 ```
 Include ~/.lima/*/ssh.config
@@ -123,15 +122,10 @@ Host browser → VM web app: Lima auto-forwards any listening guest port to `127
 
 ## IDE integration (VS Code, Cursor, JetBrains Gateway)
 
-Lima maintains a per-VM SSH config at `~/.lima/<project>/ssh.config`. Add a single
-include to `~/.ssh/config` once, and any IDE that reads SSH config sees every VM:
-
-```
-Include ~/.lima/*/ssh.config
-```
-
-The host alias for a project is `lima-<project>`. In VS Code → Remote-SSH: open the
-host picker, pick `lima-<project>`, then open `/home/<vm-user>.linux/code/<repo>`. Same
+With the `Include` line from [SSH config](#ssh-config) in place, any IDE that reads
+SSH config sees every VM. The host alias for a project is `lima-<project>`. In VS
+Code → Remote-SSH: open the host picker, pick `lima-<project>`, then open
+`/home/<vm-user>.linux/code/<repo>`. Same
 flow in Cursor and JetBrains Gateway. Lima's config sets `ForwardAgent yes`, so commit
 signing and `gh` work in the IDE's integrated terminal just like in `machine ssh`.
 
@@ -286,7 +280,7 @@ Then on the host:
 
 ```sh
 machine secrets <project>               # syncs every .envrc using `use op_env` in that VM
-machine secrets <project> <repo>        # narrow to one repo within a multi-repo project
+machine secrets <project> --repo <repo> # narrow to one repo within a multi-repo project
 ```
 
 `machine secrets` reads the Environment from 1Password (Touch ID), pipes the rendered KEY=value pairs into the VM, and writes them to `$XDG_RUNTIME_DIR/dev-secrets/<env-id>.env` (tmpfs, mode 600, gone on reboot). The `op_env` direnv helper loads that cache when you `cd` into the project. No host-side disk path is involved.
