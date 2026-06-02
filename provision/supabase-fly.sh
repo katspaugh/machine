@@ -15,6 +15,11 @@ if [ ! -x /usr/local/bin/supabase ]; then
 fi
 
 if [ ! -x /usr/local/bin/flyctl ]; then
+  # cloud-init runs provision scripts as root without $HOME set. Both fly.io's
+  # install.sh and the flyctl binary itself read $HOME (installer for shell-rc
+  # detection, binary for its config dir) and abort when it is undefined. Pin
+  # it for the install + verify so this first-boot block runs non-interactively.
+  export HOME="${HOME:-/root}"
   curl -fsSL https://fly.io/install.sh | FLYCTL_INSTALL=/usr/local bash
   /usr/local/bin/flyctl version
 fi
