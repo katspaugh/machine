@@ -69,26 +69,3 @@ gh attestation verify --owner katspaugh \
 
 This proves the tarball was built by the `katspaugh/machine` GitHub Actions runner from a specific commit. Worth setting up before announcing the tap publicly.
 
-## Releasing the GUI cask
-
-The GUI DMG is built by `.github/workflows/release.yml` when the `v*` tag is pushed (the same tag as the CLI release). Because the cask's `sha256` is the DMG's digest, the cask is bumped *after* CI finishes building it:
-
-1. Push the release tag as usual (`scripts/release.sh X.Y.Z` or by hand). `release.sh` will, after bumping the formula, poll for the DMG and rewrite the reference `Casks/machine-gui.rb` automatically (non-fatal — if CI hasn't finished, it prints next steps and moves on).
-2. If `release.sh` couldn't reach the DMG yet, wait for the **Release GUI** workflow to finish and attach `machine_X.Y.Z_universal.dmg`:
-   ```sh
-   gh run watch
-   gh release view vX.Y.Z   # confirm the DMG asset is present
-   ```
-3. Compute the DMG's sha256 (only needed if doing it by hand):
-   ```sh
-   curl -fsSL https://github.com/katspaugh/machine/releases/download/vX.Y.Z/machine_X.Y.Z_universal.dmg \
-     | shasum -a 256
-   ```
-4. Copy the bumped `Casks/machine-gui.rb` into the tap's `homebrew-machine/Casks/machine-gui.rb` (update `version` + `sha256` there too), then commit + push the tap. Users get the GUI via:
-   ```sh
-   brew install --cask katspaugh/machine/machine-gui
-   ```
-
-The cask lags the formula by the CI build time (a few minutes) — that's expected. The CLI is installable immediately; the GUI once the DMG is built.
-
-> Verify the DMG asset name (`machine_X.Y.Z_universal.dmg`) matches what `tauri-action` actually uploaded the first time — if Tauri's bundle naming differs, fix the `url` template in the cask.
