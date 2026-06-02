@@ -9,6 +9,7 @@ ARCH=$(dpkg --print-architecture)
 PKGS=(libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libnss3 libxss1
       libasound2t64 libxtst6 xauth xvfb fonts-liberation)
 
+# Needs curl + gpg from base.sh (the generated stack runs base.sh first).
 if [ "$ARCH" = "amd64" ]; then
   key=/etc/apt/keyrings/google-chrome.gpg
   if [ ! -f "$key" ]; then

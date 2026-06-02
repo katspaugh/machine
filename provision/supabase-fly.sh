@@ -1,6 +1,6 @@
 #!/bin/bash
 # Supabase CLI (GitHub release tarball) + flyctl (vendor installer).
-# Idempotent; runs on every boot.
+# Idempotent; runs on every boot. Verify runs only at install time.
 set -eu -o pipefail
 
 ARCH=$(dpkg --print-architecture)
@@ -11,10 +11,10 @@ if [ ! -x /usr/local/bin/supabase ]; then
     | tar -xz -C "$tmp"
   install -m 0755 "$tmp/supabase" /usr/local/bin/supabase
   rm -rf "$tmp"
+  /usr/local/bin/supabase --version
 fi
-/usr/local/bin/supabase --version
 
 if [ ! -x /usr/local/bin/flyctl ]; then
   curl -fsSL https://fly.io/install.sh | FLYCTL_INSTALL=/usr/local bash
+  /usr/local/bin/flyctl version
 fi
-/usr/local/bin/flyctl version
