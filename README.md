@@ -16,18 +16,6 @@ brew install katspaugh/machine/machine
 
 The formula pulls in `lima` and `python@3.12`. The tap repo is [katspaugh/homebrew-machine](https://github.com/katspaugh/homebrew-machine); each release is pinned to a tagged tarball + SHA256. See [docs/TAP.md](docs/TAP.md) for the release runbook.
 
-### Desktop app (optional)
-
-A macOS GUI is available as a cask (it installs the CLI as a dependency):
-
-```sh
-brew install --cask katspaugh/machine/machine-gui
-```
-
-This drops `machine.app` in `/Applications` — a Docker-Desktop-style dashboard for your projects (status, up/down/update/rebuild/destroy, live provisioning logs). The CLI remains the primary interface; the GUI is a convenience surface over it.
-
-> The app is ad-hoc signed (no paid Apple Developer account yet). Installing via the cask is the supported path — Homebrew clears the quarantine flag so it opens normally. Downloading the DMG manually from the Releases page will trip Gatekeeper (right-click → Open, or `xattr -dr com.apple.quarantine /Applications/machine.app`).
-
 Prefer to run from a clone (dev mode)? Skip the brew install and:
 
 ```sh
@@ -80,6 +68,41 @@ profiles = ["cypress", "supabase-fly"]
 repos = ["git@github.com:you/playground.git"]
 ```
 
+## How it works
+
+`machine up <project>` generates a tiny Lima template in `.build/<project>/lima.yaml`:
+
+```yaml
+base:
+- <repo>/templates/cypress.yaml     # one entry per profile (reversed)
+- <repo>/templates/base.yaml        # the whole base VM, declaratively — listed
+                                    # last so its provisioning runs first
+```
+
+Lima merges the stack (`base:` composition), boots the VM, and runs the
+provisioning declared in the templates: `provision/*.sh` scripts and
+`mode: data` dotfiles, applied by cloud-init on **every boot** — so
+re-provisioning is just `machine down && machine up`. Your git identity and
+signing key flow in as Lima params (`--set`) at create time and render into
+`~/.gitconfig` inside the VM. Ports: Lima auto-forwards any listening guest
+port to `127.0.0.1` on the host.
+
+To update the toolchain in place: `machine down <p> && machine up <p>`
+(provision scripts re-run; apt picks up new versions). To start truly fresh:
+`machine destroy <p> && machine up <p>`. Changing your git identity or
+signing key requires a recreate (params are fixed when the VM is created).
+
+### SSH config
+
+Lima writes a per-VM SSH config at `~/.lima/<project>/ssh.config`. To use
+plain `ssh` / IDE remote extensions, add one line to `~/.ssh/config`:
+
+```
+Include ~/.lima/*/ssh.config
+```
+
+Then `ssh lima-<project>` works everywhere.
+
 ## Quickstart
 
 ```sh
@@ -89,90 +112,75 @@ machine ssh blog           # interactive shell, cwd = ~/code/blog
 
 ![demo](assets/machine.gif)
 
-Provisioning output is captured to `~/.local/state/machine/logs/<vm>-<iso>.log` (or `<repo>/.build/logs/` in a git checkout) — the path is printed at the start of every `up` run. Pass `--verbose` to stream raw output inline.
+The first `up` bakes a provisioned base disk into `~/.cache/machine` (one-time per
+template/provision change); subsequent boots reuse it. `limactl start` blocks
+until provisioning finishes — on failure it points you at
+`limactl shell <vm> sudo tail -100 /var/log/cloud-init-output.log`.
 
 Inside the VM, each repo is at `~/code/<repo-basename>/`. JS deps are installed automatically on first clone (yarn / pnpm / npm, picked from `packageManager` in `package.json`). For env vars, drop a `.env` file in the project — Node's `dotenv` (or your framework) reads it directly. For secrets you'd rather not write to disk, see [1Password env injection](#1password-env-injection).
 
-Host browser → VM web app: ports `3000-3010`, `4200`, `5173-5180`, `8080-8099` are forwarded to `127.0.0.1`.
-
-## New tabs inside the VM
-
-`machine ssh <project>` attaches to a per-project tmux session (created on first connect, named after the project, starting at `~/code/<primary-repo>`). New "tabs" need to be created from inside the VM rather than via the host terminal's Cmd+T, because the host shortcut opens a tab on the **host** at the host's cwd — not in the VM.
-
-Inside the session:
-
-| Keys | What |
-|---|---|
-| `Ctrl-b c` | New window ("tab") — starts in the current pane's VM cwd |
-| `Ctrl-b n` / `p` | Next / previous window |
-| `Ctrl-b "` / `%` | Horizontal / vertical split — also inherits the pane cwd |
-| `Ctrl-b d` | Detach (session keeps running; reattach with `machine ssh <project>`) |
-
-The session survives detach, so closing the host terminal and reconnecting later drops you back into the same windows. To get a plain non-tmux shell instead, use `machine run <project> bash -l` or `limactl shell <project>` directly.
+Host browser → VM web app: Lima auto-forwards any listening guest port to `127.0.0.1` on the host.
 
 ## IDE integration (VS Code, Cursor, JetBrains Gateway)
 
-`machine up <project>` (and `rebuild`/`destroy`) maintains a sentinel-delimited block in `~/.ssh/config`, so any IDE that reads SSH config sees the VM directly:
+Lima maintains a per-VM SSH config at `~/.lima/<project>/ssh.config`. Add a single
+include to `~/.ssh/config` once, and any IDE that reads SSH config sees every VM:
 
 ```
-Host machine-<project>
-    HostName 127.0.0.1
-    Port <lima-port>
-    User <vm-user>
-    IdentityFile <lima-key>
-    IdentitiesOnly yes
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
-    ForwardAgent yes
+Include ~/.lima/*/ssh.config
 ```
 
-In VS Code → Remote-SSH: open the host picker, pick `machine-<project>`, then open `/home/<vm-user>/code/<repo>`. Same flow in Cursor and JetBrains Gateway. `ForwardAgent yes` means commit signing and `gh` work in the IDE's integrated terminal just like in `machine ssh`.
+The host alias for a project is `lima-<project>`. In VS Code → Remote-SSH: open the
+host picker, pick `lima-<project>`, then open `/home/<vm-user>.linux/code/<repo>`. Same
+flow in Cursor and JetBrains Gateway. Lima's config sets `ForwardAgent yes`, so commit
+signing and `gh` work in the IDE's integrated terminal just like in `machine ssh`.
 
-`machine doctor` reports drift — missing block, stale ports, orphan entries, loose permissions. The block is rewritten end-to-end on every `up`/`rebuild`/`destroy`, so running `machine up <any-project>` is the recovery path if it ever goes out of sync.
+Because Lima owns the config file, it stays correct across `up`/`down`/`destroy`
+automatically — there is no host `~/.ssh/config` block for `machine` to manage.
 
 ## Commands
 
 | Command | What |
 |---|---|
-| `machine list` | List projects from `projects.toml`. `--json` for machine-readable output. |
-| `machine ps` | Rich live-status table: per-VM uptime, CPU/mem, repo + branch, idle time, active host ports. `--json` for machine-readable output. |
-| `machine doctor` | Preflight host checks: lima, git config, SSH agent, signing key, `op` CLI. `--json` for machine-readable output. |
-| `machine validate` | Schema-check `projects.toml` and referenced profiles (no VM) |
-| `machine up <p>` | Create if needed, start, provision, clone the repo(s). Idempotent. `--dry-run` prints provision steps without executing. `--verbose` streams raw provisioner output; `--plain` disables the spinner (useful in CI). |
-| `machine down <p>` | Stop the VM |
-| `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). Attaches to a per‑project tmux session so `Ctrl‑b c` opens new windows that stay in the VM at the current pane's cwd. |
+| `machine up <p>` | Create if needed, start, provision, clone the repo(s). Idempotent — re-running re-applies the provision scripts. |
+| `machine down <p>` | Stop the VM (preserves disk). Re-provision in place with `machine up <p>` afterwards. |
+| `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). |
 | `machine claude <p>` | Open an SSH session and launch `claude` straight away (cwd = `~/code/<primary-repo>`). Exiting `claude` ends the session. |
-| `machine run <p> <cmd>...` | Non-interactive command in the VM |
-| `machine secrets <p> [<repo>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)) |
-| `machine secrets --clear <p> [<repo>]` | Wipe rendered secrets from VM tmpfs |
-| `machine status <p>` | `limactl list` for the VM |
-| `machine update <p>` | Refresh in-place: `apt upgrade`, npm globals, claude installer. `--reprovision` also re-applies TOML configs. |
-| `machine rebuild <p>` | **Destroys** the VM and rebuilds from scratch (reproducibility test). `-y` skips confirmation. |
+| `machine run <p> <cmd>...` | Non-interactive command in the VM. |
+| `machine list` | List VMs (`limactl list`) plus configured-but-not-yet-created projects. |
 | `machine destroy <p>` | Delete the VM. `-y` skips confirmation. |
-| `machine config add-project <name> --repo <url> [--profile ...]` | Append a project to `projects.toml` (used by the GUI; refuses to overwrite). |
+| `machine bake` | Build/refresh the cached base disk in `~/.cache/machine` used by `up`. `--force` rebuilds even if the cache hash is fresh. |
+| `machine secrets <p> [--repo <r>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)). `--clear` wipes them. |
+| `machine init` | Write `projects.toml` to `~/.config/machine/` from the bundled example. |
+| `machine doctor` | Preflight host checks: lima, SSH agent keys, git identity, signing-key resolution, `op` CLI note, `projects.toml` presence. |
 
 ## Repository layout
 
 ```
 machine/
-├── bin/machine             # host CLI: drives Lima, pushes config into the VM
-├── provision/run.py        # in-VM dispatcher: reads merged TOMLs, runs steps
-├── provision.toml          # base provisioning config (always applied)
-├── profiles/*.toml         # opt-in profile add-ons (cypress, python, rust, go, supabase-fly)
-├── projects.toml.example   # template for your projects.toml (the real one is gitignored)
-├── lima.yaml               # Lima VM template (CPU/mem/disk, port-forwards, no host mounts)
-├── files/                  # files copied verbatim into each VM
+├── bin/machine             # host CLI: renders the Lima stack, drives limactl
+├── templates/              # Lima templates composed via `base:`
+│   ├── base.yaml           #   the whole base VM (resources, params, dotfiles, base.sh)
+│   ├── cypress.yaml        #   one file per profile — points at provision/<name>.sh
+│   ├── supabase-fly.yaml
+│   ├── files -> ../files   #   symlinks (Lima v2 forbids '../' in file: locators)
+│   └── provision -> ../provision
+├── provision/              # provision scripts run by cloud-init inside the VM
+│   ├── base.sh             #   apt repos + packages, Docker, Node, Claude, npm globals
+│   ├── base-user.sh        #   per-user setup (shell, claude plugins)
+│   ├── cypress.sh          #   profile scripts, one per templates/<name>.yaml
+│   └── supabase-fly.sh
+├── files/                  # data placed into each VM via `mode: data`
 │   ├── zsh/                #   ~/.zshrc
 │   ├── fish/               #   ~/.config/fish/config.fish
-│   ├── profile.d/          #   /etc/profile.d snippets (PATH, direnv, corepack)
+│   ├── profile.d/          #   /etc/profile.d snippets (PATH, direnv)
 │   ├── direnv/             #   `use op_env` helper for 1Password env injection
-│   ├── git/                #   gitconfig + allowed_signers templates (host-rendered)
 │   └── ssh/                #   pre-seeded known_hosts
-├── schemas/                # JSON Schemas for projects.toml + provision.toml (used by `validate`)
+├── projects.toml.example   # template for your projects.toml (the real one is gitignored)
 ├── completions/            # bash/zsh/fish completions for the `machine` CLI
 ├── tests/                  # tests/lint.sh, tests/unit.sh (host); tests/smoke-*.sh (in-VM)
 ├── assets/                 # README gif/banner + VHS recording script (not deployed)
-└── .github/workflows/      # CI: lint, unit, validate, dry-run provision
+└── .github/workflows/      # CI: lint + unit
 ```
 
 ```mermaid
@@ -180,56 +188,51 @@ flowchart TB
     user(["You (host)"]) --> projects["projects.toml"]
     user --> cli["bin/machine"]
     cli --> projects
-    cli --> lima["lima.yaml"]
-    lima -->|limactl create / start| vm[("Lima VM")]
-    cli -->|render| gittpl["files/git/*.tpl"]
-    gittpl --> rendered["~/.gitconfig &<br/>allowed_signers"]
-    cli -->|push| files["files/**"]
-    cli -->|push| base["provision.toml"]
-    cli -->|push| profiles["profiles/&lt;name&gt;.toml"]
-    cli -->|push + run as sudo| disp["provision/run.py"]
-    base --> disp
-    profiles --> disp
-    files --> vm
-    rendered --> vm
-    disp --> vm
+    cli -->|render .build/&lt;p&gt;/lima.yaml| stack["base: profiles… + base.yaml"]
+    stack --> tpls["templates/*.yaml"]
+    cli -->|"--set .param.gitName/Email/signingKey/shell"| params["Lima params"]
+    cli -->|limactl create / start| vm[("Lima VM")]
+    tpls --> vm
+    params -->|render ~/.gitconfig &<br/>allowed_signers| vm
+    vm -->|cloud-init, every boot| prov["mode:data dotfiles<br/>+ provision/*.sh"]
 ```
 
-Everything under `files/` is data that lands inside the VM. Everything under `bin/`, `provision/`, `tests/`, `schemas/`, `completions/`, plus the top-level TOMLs and `lima.yaml`, is code or configuration that runs on the host or is read by `provision/run.py`. `assets/` contains README media and the demo recorder; nothing under `assets/` is ever pushed to a VM.
+Everything under `files/` is data placed into the VM (`mode: data` entries in `templates/base.yaml`). `provision/*.sh` are the scripts cloud-init runs inside the VM on every boot. `bin/machine`, the `templates/`, `projects.toml.example`, `completions/`, and `tests/` are host-side code/config. `assets/` contains README media only; nothing under `assets/` is pushed to a VM.
 
-What happens on `bin/machine up <p>`:
+What happens on `machine up <p>`:
 
-- If the VM doesn't exist, `limactl create --name=<p>` against `lima.yaml`, then `limactl start <p>`.
-- Push `provision.toml`, the project's `profiles/<name>.toml` files, `provision/run.py`, and the `files/` tree into `/opt/dev-vm/` on the VM.
-- Render `files/git/*.tpl` on the host (substituting your name, email, and SSH signing pubkey), and push the results to the same location.
-- Run `sudo python3 /opt/dev-vm/provision/run.py provision.toml <profiles...>` inside the VM.
-- Clone the listed `repos` into `~/code/<basename>/` in parallel.
+- If no fresh base disk is cached, `machine` bakes one into `~/.cache/machine` (a provisioned base VM exported once per template/provision change).
+- Render `.build/<p>/lima.yaml`: a `base:` stack of the project's `templates/<profile>.yaml` (reversed) plus `templates/base.yaml` last, with the cached base disk prepended as the top-priority image.
+- If the VM doesn't exist, `limactl create --name=<p> --set '.param.gitName=…' …` against that template (git identity + signing key arrive as params), then `limactl start <p>` — which blocks until the provisioning probe passes.
+- cloud-init applies the `mode: data` dotfiles and runs `provision/base.sh` then the profile scripts, on every boot, idempotently.
+- Clone the listed `repos` into `~/code/<basename>/`.
 
 GitHub auth and commit signing both use the forwarded SSH agent — private keys never leave the host; the VM only sees signatures and `ssh -A` proxied auth.
 
 ## Provisioning
 
-The provisioning system is declarative: tools are listed in TOML files, and a small Python dispatcher applies them.
+A profile is a small `templates/<name>.yaml` + `provision/<name>.sh` pair. The template
+lists the script as a `provision:` entry; the generated per-project stack composes the
+base plus each profile via Lima's `base:` mechanism. Provisioning is just shell — there
+is no separate config format to learn.
 
-- **`provision.toml`** — the base config, always applied. Lists apt packages, third-party apt repos (Docker, GitHub CLI, NodeSource for Node), `curl|bash` installers (Claude Code), npm globals (Codex, TypeScript), `/etc/profile.d` snippets, Claude marketplace + plugins.
-- **`profiles/<name>.toml`** — optional add-ons. Ship with `machine`:
-  - `cypress.toml` — Cypress runtime libs + Chrome (amd64) or chromium (arm64).
-  - `supabase-fly.toml` — Supabase CLI (release tarball) + flyctl (`curl|bash`).
-  - `python.toml` — `uv` (package + project manager) + `ruff` + `pyright`.
-  - `rust.toml` — `rustup` with the stable toolchain (minimal profile).
-  - `go.toml` — pinned Go from go.dev (edit the version in the file to bump).
-- **`provision/run.py`** — reads the base + selected profiles, merges, and runs them in fixed step order. Idempotent via sentinels under `/var/lib/dev-vm/provisioned/`.
+- **base** (`templates/base.yaml` + `provision/base.sh`, `base-user.sh`) — always applied.
+  Third-party apt repos (Docker, GitHub CLI, NodeSource for Node), apt packages, Docker,
+  Node + corepack package managers, Claude Code + its marketplace/plugins, npm globals,
+  the dotfiles under `files/`, and git identity/signing rendered from params.
+- **`cypress`** — Cypress runtime libs + Chrome (amd64) or Chromium (arm64), Xvfb.
+- **`supabase-fly`** — Supabase CLI (GitHub release tarball) + flyctl (vendor installer).
 
-Adding a tool that fits a typed section (apt package, npm global, apt repo, `curl|bash` installer, GitHub release tarball, Claude plugin) is one line in TOML. The `[[shell]]` section is an escape hatch for genuinely-shell-shaped one-offs (writing config files, `chsh`, etc.).
-
-Schema reference is in the comments at the top of `provision.toml`.
+To add a profile: copy an existing `templates/<name>.yaml`, point it at a new
+`provision/<name>.sh`, and reference the profile name in `projects.toml`. Scripts run as
+root by default (`mode: system`); use `mode: user` for per-user steps. Keep them
+idempotent — they re-run on every boot.
 
 ## Verifying
 
 ```sh
-bash tests/run-all.sh <project>     # full VM smokes (lint + boot + docker + node + git-sign + …)
+bash tests/run-all.sh <project>     # full VM smokes (boot + docker + node + git-sign + …)
 bash tests/unit.sh                  # host-side Python unit tests (no VM)
-machine validate                    # schema-check the TOMLs
 machine doctor                      # preflight host environment
 ```
 
@@ -304,7 +307,6 @@ No host filesystem is mounted. Each project gets its own VM, so a compromise of 
 | `OP_SIGNING_KEY_REF` | 1Password secret reference for the signing pubkey (e.g. `op://Personal/SSH/public key`) |
 | `MACHINE_USE_1PASSWORD` | set `=1` to forward 1Password's SSH agent instead of macOS Keychain |
 | `ONEPASS_SOCK` | `~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock` |
-| `PROJECTS_FILE` | `<repo>/projects.toml` |
-| `MACHINE_VERBOSE` | set `=1` to stream raw provisioner output inline (equivalent to `--verbose`) |
-| `MACHINE_PLAIN` | set `=1` to disable the spinner and use plain text output (equivalent to `--plain`) |
-| `MACHINE_PROVISION_LOG` | override the default provisioning log path (`<state-dir>/logs/<vm>-<iso>.log`) |
+| `PROJECTS_FILE` | `<repo>/projects.toml` in dev mode; `~/.config/machine/projects.toml` under Homebrew |
+| `MACHINE_CONFIG_DIR` | config-directory location (`~/.config/machine` by default) |
+| `MACHINE_STATE_DIR` | generated-state location (`<repo>/.build` in dev mode; `~/.local/state/machine` under Homebrew) |

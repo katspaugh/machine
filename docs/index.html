@@ -231,9 +231,9 @@
       </article>
       <article class="why-card">
         <div class="why-num">02</div>
-        <h3>Reproducible from TOML.</h3>
-        <p>Check <code>projects.toml</code> and <code>provision.toml</code> into the repo. Your teammate runs <code>up</code>, gets the same box.</p>
-        <code>machine rebuild blog</code>
+        <h3>Reproducible from templates.</h3>
+        <p>The base VM and every profile live in version-controlled Lima templates + provision scripts. Your teammate runs <code>up</code>, gets the same box.</p>
+        <code>machine up blog</code>
       </article>
       <article class="why-card">
         <div class="why-num">03</div>
@@ -262,8 +262,8 @@
           <li><span class="ic">→</span><div>Your project's git repo, cloned at boot<span class="sub">git@github.com:you/blog → ~/code/blog (inside the VM)</span></div></li>
           <li><span class="ic">→</span><div>Your forwarded SSH agent socket<span class="sub">$SSH_AUTH_SOCK · used, never copied</span></div></li>
           <li><span class="ic">→</span><div>1Password env(s) you declared in the repo's <code>.envrc</code><span class="sub">$XDG_RUNTIME_DIR/dev-secrets (tmpfs)</span></div></li>
-          <li><span class="ic">→</span><div>Outbound network, and a few forwarded localhost ports<span class="sub">3000-3010 · 4200 · 5173-5180 · 8080-8099</span></div></li>
-          <li><span class="ic">→</span><div>Its own filesystem, fully<span class="sub">disposable. `machine rebuild` is cheap.</span></div></li>
+          <li><span class="ic">→</span><div>Outbound network, and auto-forwarded localhost ports<span class="sub">Lima forwards listening guest ports to 127.0.0.1</span></div></li>
+          <li><span class="ic">→</span><div>Its own filesystem, fully<span class="sub">disposable. `machine destroy && machine up` is cheap.</span></div></li>
         </ul>
       </div>
 
@@ -287,7 +287,7 @@
     <p class="section-eyebrow">// section 04 — profiles</p>
     <h2 class="section-title">The machine shop.</h2>
     <p class="section-intro">
-      Profiles stack. Pick a base, layer extras in <code>provision.toml</code>, or write your own from scratch in 30 lines.
+      Profiles stack. Pick a base, layer extras from the bundled templates, or write your own as a small template + provision script.
     </p>
 
     <div class="profile-grid">
@@ -313,47 +313,14 @@
         </div>
       </article>
 
-      <article class="profile-card">
-        <div class="head">
-          <div class="profile-icon" style="color: var(--cyan)">π</div>
-          <div class="name">python</div>
-        </div>
-        <p class="desc">Modern Python tooling on top of system python3: uv for envs and installs, ruff for lint/format, pyright for types.</p>
-        <div class="chips">
-          <span class="chip">uv</span><span class="chip">ruff</span><span class="chip">pyright</span>
-        </div>
-      </article>
-
-      <article class="profile-card">
-        <div class="head">
-          <div class="profile-icon" style="color: var(--pink)">◆</div>
-          <div class="name">rust</div>
-        </div>
-        <p class="desc">rustup with the stable toolchain, installed system-wide so <code>cargo</code> is on PATH for every user.</p>
-        <div class="chips">
-          <span class="chip">rustup</span><span class="chip">cargo</span><span class="chip">stable</span>
-        </div>
-      </article>
-
-      <article class="profile-card">
-        <div class="head">
-          <div class="profile-icon" style="color: var(--cyan)">go</div>
-          <div class="name">go</div>
-        </div>
-        <p class="desc">A pinned Go toolchain from go.dev, dropped into <code>/usr/local/go</code> with <code>go</code> and <code>gofmt</code> on PATH.</p>
-        <div class="chips">
-          <span class="chip">go 1.23</span><span class="chip">gofmt</span>
-        </div>
-      </article>
-
       <article class="profile-card byo">
         <div class="head">
           <div class="profile-icon" style="color: var(--muted)">+</div>
           <div class="name">your own</div>
         </div>
-        <p class="desc">A profile is a TOML file and a shell script. Copy any of the above, change three lines, commit it.</p>
+        <p class="desc">A profile is a Lima template and a shell script. Copy either of the above, point it at a new script, reference it in <code>projects.toml</code>.</p>
         <div class="chips">
-          <span class="chip">provision.toml</span><span class="chip">setup.sh</span>
+          <span class="chip">templates/&lt;name&gt;.yaml</span><span class="chip">provision/&lt;name&gt;.sh</span>
         </div>
       </article>
     </div>
@@ -387,7 +354,7 @@
     <p class="section-eyebrow">// section 06 — lifecycle</p>
     <h2 class="section-title">Tend the machine.</h2>
     <p class="section-intro">
-      Ten commands, no manifesto. Most days you'll use the first two.
+      Eleven commands, no manifesto. Most days you'll use the first two.
     </p>
 
     <div class="cmd-grid">
@@ -404,24 +371,24 @@
         <div class="v">Skip the shell, jump straight into <code>claude</code> at the primary repo.</div>
       </div>
       <div class="cmd-card">
-        <div class="k">machine update <span class="sub">&lt;p&gt;</span></div>
-        <div class="v">Re-run provisioning on a running box. Tools change; the VM doesn't.</div>
-      </div>
-      <div class="cmd-card">
-        <div class="k">machine rebuild <span class="sub">&lt;p&gt;</span></div>
-        <div class="v">Tear the VM down to the image and provision from scratch.</div>
+        <div class="k">machine down <span class="sub">&lt;p&gt;</span></div>
+        <div class="v">Stop the VM. Re-provision in place with <code>machine up</code> — scripts re-run on boot.</div>
       </div>
       <div class="cmd-card destroy">
         <div class="k">machine destroy <span class="sub">&lt;p&gt;</span></div>
-        <div class="v">Rage-quit a machine. Disk, state, secrets, all gone.</div>
+        <div class="v">Rage-quit a machine. Disk, state, secrets, all gone. <code>machine up</code> to start fresh.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine bake</div>
+        <div class="v">Build/refresh the cached base disk in <code>~/.cache/machine</code> that <code>up</code> reuses.</div>
       </div>
       <div class="cmd-card">
         <div class="k">machine doctor</div>
-        <div class="v">Check Lima, network, agent, and disk space. Tells you what's drifted.</div>
+        <div class="v">Preflight: Lima, SSH agent, git identity, signing key, <code>op</code> CLI.</div>
       </div>
       <div class="cmd-card">
-        <div class="k">machine ps</div>
-        <div class="v">List your VMs, their states, and where the SSH ports landed.</div>
+        <div class="k">machine list</div>
+        <div class="v">List your VMs and any configured-but-not-yet-created projects.</div>
       </div>
       <div class="cmd-card">
         <div class="k">machine secrets <span class="sub">&lt;p&gt;</span></div>
@@ -455,18 +422,18 @@
           <div class="picker-list">
             <div class="row active">
               <span class="glyph">⌂</span>
-              <span class="name">machine-blog</span>
-              <span class="meta">lima · 22:60010</span>
+              <span class="name">lima-blog</span>
+              <span class="meta">lima · ssh.config</span>
             </div>
             <div class="row">
               <span class="glyph">⌂</span>
-              <span class="name">machine-wallet</span>
-              <span class="meta">lima · 22:60011</span>
+              <span class="name">lima-wallet</span>
+              <span class="meta">lima · ssh.config</span>
             </div>
             <div class="row">
               <span class="glyph">⌂</span>
-              <span class="name">machine-scraper</span>
-              <span class="meta">lima · 22:60012</span>
+              <span class="name">lima-scraper</span>
+              <span class="meta">lima · ssh.config</span>
             </div>
             <div class="row">
               <span class="glyph">+</span>
@@ -475,7 +442,7 @@
             </div>
           </div>
         </div>
-        <p class="ide-caption"><code>machine up</code> maintains a sentinel-delimited block in <code>~/.ssh/config</code>. Cursor and JetBrains Gateway pick it up too.</p>
+        <p class="ide-caption">Add <code>Include ~/.lima/*/ssh.config</code> to <code>~/.ssh/config</code> once; Lima maintains the per-VM configs. Cursor and JetBrains Gateway pick them up too.</p>
       </div>
     </div>
   </div>
@@ -536,9 +503,8 @@
       <div class="foot-col">
         <h5>// profiles</h5>
         <ul>
-          <li><a href="https://github.com/katspaugh/machine/blob/main/profiles/cypress.toml">cypress</a></li>
-          <li><a href="https://github.com/katspaugh/machine/blob/main/profiles/supabase-fly.toml">supabase-fly</a></li>
-          <li><a href="https://github.com/katspaugh/machine/tree/main/profiles">python · rust · go</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/templates/cypress.yaml">cypress</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/templates/supabase-fly.yaml">supabase-fly</a></li>
           <li><a href="https://github.com/katspaugh/machine#provisioning">Write your own</a></li>
         </ul>
       </div>
