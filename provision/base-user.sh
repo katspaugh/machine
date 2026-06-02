@@ -26,10 +26,24 @@ run_claude() {
   printf '%s\n' "$out"
 }
 
-run_claude plugin marketplace add "$MARKETPLACE"
-for p in $PLUGINS; do
-  run_claude plugin install "$p@$MARKETPLACE_ID"
-done
+# Skip the network-backed marketplace/install work once a prior boot fully
+# provisioned the plugin set: settings.json is written last (below), so its
+# plugin list doubles as the success marker. Keeps re-boots fast and
+# offline-safe; plugin updates ride fresh VMs / `machine bake`.
+plugins_provisioned() {
+  [ -f "$HOME/.claude/settings.json" ] || return 1
+  local p
+  for p in $PLUGINS; do
+    grep -q "\"$p@$MARKETPLACE_ID\": true" "$HOME/.claude/settings.json" || return 1
+  done
+}
+
+if ! plugins_provisioned; then
+  run_claude plugin marketplace add "$MARKETPLACE"
+  for p in $PLUGINS; do
+    run_claude plugin install "$p@$MARKETPLACE_ID"
+  done
+fi
 
 # Settings: defaultMode + the enabled-plugin map.
 mkdir -p "$HOME/.claude"

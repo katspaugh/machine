@@ -49,10 +49,21 @@ systemctl enable --now docker
 
 # --- corepack-managed package managers + npm globals -------------------------
 # apt-installed Node keeps globals in /usr/lib/node_modules (root-owned).
+# First install must succeed (fail fast while baking); once the probe binary
+# exists, refreshes are best-effort so offline re-boots don't fail the boot
+# probe. `corepack enable` is a local shim write — always safe.
+refresh() { # <probe-bin> <cmd...>
+  local probe="$1"; shift
+  if command -v "$probe" >/dev/null 2>&1; then
+    "$@" || true
+  else
+    "$@"
+  fi
+}
 corepack enable
-corepack prepare pnpm@latest --activate
-corepack prepare yarn@stable --activate
-npm install -g typescript typescript-language-server @openai/codex
+refresh pnpm corepack prepare pnpm@latest --activate
+refresh yarn corepack prepare yarn@stable --activate
+refresh tsc npm install -g typescript typescript-language-server @openai/codex
 
 # --- Default login shell ------------------------------------------------------
 TARGET_SHELL="{{.Param.shell}}"
