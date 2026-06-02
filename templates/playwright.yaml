@@ -1,0 +1,5 @@
+# Playwright browser OS deps. Stacks on base.yaml via the generated
+# per-project template's `base:` list.
+provision:
+- mode: system
+  file: provision/playwright.sh

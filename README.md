@@ -4,7 +4,7 @@
 
 ![machine](assets/banner.svg)
 
-A reproducible Lima VM per GitHub project, with Docker, Node, agent CLIs (Claude Code, Codex), GitHub CLI (`gh`), signed git, and tool profiles (e.g. Cypress, Supabase + flyctl) you opt into per project. Each project lives in its own VM so they can't see each other and the host filesystem isn't mounted.
+A reproducible Lima VM per GitHub project, with Docker, Node, agent CLIs (Claude Code, Codex), GitHub CLI (`gh`), signed git, and tool profiles (e.g. Cypress, Playwright, Supabase + flyctl) you opt into per project. Each project lives in its own VM so they can't see each other and the host filesystem isn't mounted.
 
 Claude Code comes pre-installed with the official marketplace and these plugins enabled: `frontend-design`, `superpowers`, `github`, `typescript-lsp`, `security-guidance`, `commit-commands`, `chrome-devtools-mcp`, `supabase`. Permission `defaultMode` is set to `auto`.
 
@@ -216,6 +216,8 @@ is no separate config format to learn.
   Node + corepack package managers, Claude Code + its marketplace/plugins, npm globals,
   the dotfiles under `files/`, and git identity/signing rendered from params.
 - **`cypress`** — Cypress runtime libs + Chrome (amd64) or Chromium (arm64), Xvfb.
+- **`playwright`** — OS deps for Playwright's browsers (via `playwright install-deps`);
+  browser binaries stay per-repo (`npx playwright install`, no sudo needed).
 - **`supabase-fly`** — Supabase CLI (GitHub release tarball) + flyctl (vendor installer).
 
 To add a profile: copy an existing `templates/<name>.yaml`, point it at a new

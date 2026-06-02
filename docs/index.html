@@ -304,6 +304,17 @@
 
       <article class="profile-card">
         <div class="head">
+          <div class="profile-icon" style="color: var(--cyan, #22d3ee)">▷</div>
+          <div class="name">playwright</div>
+        </div>
+        <p class="desc">The OS libs Playwright's browsers need, pre-installed. Each repo's <code>npx playwright install</code> then works without sudo.</p>
+        <div class="chips">
+          <span class="chip">install-deps</span><span class="chip">chromium · firefox · webkit</span>
+        </div>
+      </article>
+
+      <article class="profile-card">
+        <div class="head">
           <div class="profile-icon" style="color: var(--purple)">◬</div>
           <div class="name">supabase-fly</div>
         </div>
@@ -318,7 +329,7 @@
           <div class="profile-icon" style="color: var(--muted)">+</div>
           <div class="name">your own</div>
         </div>
-        <p class="desc">A profile is a Lima template and a shell script. Copy either of the above, point it at a new script, reference it in <code>projects.toml</code>.</p>
+        <p class="desc">A profile is a Lima template and a shell script. Copy any of the above, point it at a new script, reference it in <code>projects.toml</code>.</p>
         <div class="chips">
           <span class="chip">templates/&lt;name&gt;.yaml</span><span class="chip">provision/&lt;name&gt;.sh</span>
         </div>
@@ -508,6 +519,7 @@
         <h5>// profiles</h5>
         <ul>
           <li><a href="https://github.com/katspaugh/machine/blob/main/templates/cypress.yaml">cypress</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/templates/playwright.yaml">playwright</a></li>
           <li><a href="https://github.com/katspaugh/machine/blob/main/templates/supabase-fly.yaml">supabase-fly</a></li>
           <li><a href="https://github.com/katspaugh/machine#provisioning">Write your own</a></li>
         </ul>
