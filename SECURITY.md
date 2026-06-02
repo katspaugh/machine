@@ -17,8 +17,8 @@ If GitHub's private reporting is unavailable to you, email the maintainer listed
 
 In scope:
 
-- The host CLI (`bin/machine`) and its interaction with `~/.ssh/config`, the SSH agent socket, and `limactl`.
-- The provisioner (`provision/run.py`) and the base + profile TOMLs that drive it.
+- The host CLI (`bin/machine`) and its interaction with the SSH agent socket and `limactl`.
+- The Lima templates (`templates/*.yaml`) and the provision scripts (`provision/*.sh`) cloud-init runs inside the VM.
 - `machine secrets` and the 1Password env-injection path (`files/direnv/op_env`), including how rendered envs reach `$XDG_RUNTIME_DIR/dev-secrets`.
 - The published Homebrew formula (`Formula/machine.rb`) and the tap repository.
 

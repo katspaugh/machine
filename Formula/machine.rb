@@ -30,6 +30,8 @@ class Machine < Formula
 
   def caveats
     <<~EOS
+      Requires Lima >= 2.0 (template composition).
+
       Bootstrap your projects file:
 
         machine init

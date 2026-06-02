@@ -1,0 +1,131 @@
+# Base VM template. `bin/machine up <p>` generates .build/<p>/lima.yaml with
+# `base: [profiles reversed..., this file]` — Lima prepends each successively
+# merged base's provision entries, so listing base.yaml last makes base.sh run
+# first. Provision scripts run on EVERY boot via
+# cloud-init scripts-per-boot — they must stay idempotent.
+#
+# Host values arrive as params (`limactl create --set '.param.X = "..."'`):
+#   gitName / gitEmail / signingKey — rendered into ~/.gitconfig and
+#   ~/.config/git/allowed_signers below; shell — applied by provision/base.sh.
+#
+# `file:` locators below are relative to this template's dir. Lima v2.0+
+# forbids '../' in relative locators, so templates/files and
+# templates/provision are symlinks to the repo-root files/ and provision/.
+vmType: vz
+
+cpus: 4
+memory: 8GiB
+disk: 30GiB
+
+images:
+- location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
+  arch: aarch64
+- location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+  arch: x86_64
+
+# No host filesystem visible to the guest. Each project gets its own VM.
+mounts: []
+
+ssh:
+  forwardAgent: true
+  loadDotSSHPubKeys: false
+
+# No portForwards block: Lima auto-forwards listening guest ports to
+# 127.0.0.1 via the guest agent.
+
+hostResolver:
+  enabled: true
+
+param:
+  shell: zsh
+  gitName: ""
+  gitEmail: ""
+  signingKey: ""
+
+provision:
+# --- Dotfiles (rewritten every boot; known_hosts only written once) --------
+- mode: data
+  file: files/zsh/zshrc
+  path: "{{.Home}}/.zshrc"
+  owner: "{{.User}}:{{.User}}"
+  permissions: 644
+- mode: data
+  file: files/fish/config.fish
+  path: "{{.Home}}/.config/fish/config.fish"
+  owner: "{{.User}}:{{.User}}"
+  permissions: 644
+- mode: data
+  file: files/direnv/op_env.sh
+  path: "{{.Home}}/.config/direnv/direnvrc"
+  owner: "{{.User}}:{{.User}}"
+  permissions: 644
+# Pre-seeded known_hosts so first clone uses strict host key checking instead
+# of TOFU. overwrite:false → user-appended entries survive reboots.
+- mode: data
+  file: files/ssh/known_hosts
+  path: "{{.Home}}/.ssh/known_hosts"
+  owner: "{{.User}}:{{.User}}"
+  permissions: 644
+  overwrite: false
+# Login-shell snippets (root-owned, defaults are fine).
+- mode: data
+  file: files/profile.d/node.sh
+  path: /etc/profile.d/node.sh
+- mode: data
+  file: files/profile.d/direnv.sh
+  path: /etc/profile.d/direnv.sh
+- mode: data
+  file: files/profile.d/local-bin.sh
+  path: /etc/profile.d/local-bin.sh
+# Git identity + SSH signing, rendered from params (replaces files/git/*.tpl).
+- mode: data
+  path: "{{.Home}}/.gitconfig"
+  owner: "{{.User}}:{{.User}}"
+  permissions: 644
+  content: |
+    [user]
+      name = {{.Param.gitName}}
+      email = {{.Param.gitEmail}}
+      signingkey = {{.Param.signingKey}}
+
+    [gpg]
+      format = ssh
+
+    [gpg "ssh"]
+      program = ssh-keygen
+      allowedSignersFile = ~/.config/git/allowed_signers
+
+    [commit]
+      gpgsign = true
+    [tag]
+      gpgsign = true
+
+    [init]
+      defaultBranch = main
+    [pull]
+      rebase = true
+    [fetch]
+      prune = true
+- mode: data
+  path: "{{.Home}}/.config/git/allowed_signers"
+  owner: "{{.User}}:{{.User}}"
+  permissions: 644
+  content: |
+    {{.Param.gitEmail}} {{.Param.signingKey}}
+# --- Provision scripts ------------------------------------------------------
+- mode: system
+  file: provision/base.sh
+- mode: user
+  file: provision/base-user.sh
+
+# `limactl start` blocks until probes pass — a failed provision script leaves
+# cloud-init in "error" and start fails with the hint below.
+probes:
+- description: provisioning finished
+  script: |
+    #!/bin/bash
+    set -eu
+    cloud-init status 2>/dev/null | grep -q "status: done"
+  hint: |
+    Provisioning is still running or failed. Inspect with:
+      limactl shell <vm> sudo tail -100 /var/log/cloud-init-output.log

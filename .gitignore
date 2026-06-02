@@ -13,11 +13,3 @@ projects.toml
 projects.list
 .env
 __pycache__/
-
-# gui/ (Tauri + SvelteKit) build artifacts
-gui/node_modules/
-gui/build/
-gui/.svelte-kit/
-gui/src-tauri/target/
-gui/src-tauri/gen/schemas/
-.pnpm-store/

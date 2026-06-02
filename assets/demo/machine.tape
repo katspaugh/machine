@@ -19,13 +19,10 @@ Show
 
 Type "# machine — one isolated Lima VM per project" Sleep 600ms Enter
 Type "machine list" Sleep 300ms Enter
-Sleep 2000ms
+Sleep 2500ms
 
 Type "machine up wallet" Sleep 300ms Enter
 Sleep 7000ms
-
-Type "machine status wallet" Sleep 300ms Enter
-Sleep 1500ms
 
 Type "machine secrets wallet" Sleep 300ms Enter
 Sleep 2500ms

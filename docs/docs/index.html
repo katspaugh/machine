@@ -141,7 +141,7 @@
         <h2><span class="num">04</span>Quickstart</h2>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine up blog            <span class="cmt"># create + start + provision VM "blog", clone the repo</span>
 <span class="prompt">$ </span>machine ssh blog           <span class="cmt"># interactive shell, cwd = ~/code/blog</span></code></pre>
-        <p>Host browser → VM web app: ports <code>3000-3010</code>, <code>4200</code>, <code>5173-5180</code>, <code>8080-8099</code> are forwarded to <code>127.0.0.1</code> automatically. The first <code>up</code> is the slow one — subsequent boots are warm restarts.</p>
+        <p>Host browser → VM web app: Lima auto-forwards any listening guest port to <code>127.0.0.1</code> on the host. The first <code>up</code> bakes the base disk and is the slow one — subsequent boots reuse it.</p>
         <div class="callout">
           <span class="mark"><span>i</span></span>
           <div>
@@ -157,22 +157,17 @@
           <table>
             <thead><tr><th>command</th><th>what it does</th></tr></thead>
             <tbody>
-              <tr><td>machine list</td><td class="desc">List projects defined in <code>projects.toml</code>.</td></tr>
-              <tr><td>machine ps</td><td class="desc">List projects with live VM status.</td></tr>
-              <tr><td>machine doctor</td><td class="desc">Preflight host checks: lima, git config, SSH agent, signing key, <code>op</code> CLI.</td></tr>
-              <tr><td>machine validate</td><td class="desc">Schema-check <code>projects.toml</code> and referenced profiles (no VM touched).</td></tr>
-              <tr><td>machine init</td><td class="desc">Write a starter <code>projects.toml</code> to <code>~/.config/machine/</code>.</td></tr>
-              <tr><td>machine up &lt;p&gt;</td><td class="desc">Create if needed, start, provision (base + profiles), clone the repo(s). Idempotent. <code>--dry-run</code> prints steps without executing.</td></tr>
-              <tr><td>machine down &lt;p&gt;</td><td class="desc">Stop the VM (preserves disk).</td></tr>
+              <tr><td>machine up &lt;p&gt;</td><td class="desc">Create if needed, start, provision (base + profiles), clone the repo(s). Idempotent — re-running re-applies the provision scripts.</td></tr>
+              <tr><td>machine down &lt;p&gt;</td><td class="desc">Stop the VM (preserves disk). Re-provision in place with <code>machine up</code> afterwards.</td></tr>
               <tr><td>machine ssh &lt;p&gt;</td><td class="desc">Interactive shell, cwd = <code>~/code/&lt;primary-repo&gt;</code>.</td></tr>
               <tr><td>machine claude &lt;p&gt;</td><td class="desc">Open an SSH session and launch <code>claude</code> straight away, cwd = <code>~/code/&lt;primary-repo&gt;</code>.</td></tr>
               <tr><td>machine run &lt;p&gt; &lt;cmd&gt;…</td><td class="desc">Non-interactive command in the VM.</td></tr>
-              <tr><td>machine secrets &lt;p&gt; [&lt;repo&gt;]</td><td class="desc">Render 1Password Environment(s) into VM tmpfs. See <a href="#secrets">§10</a>.</td></tr>
-              <tr><td>machine secrets --clear &lt;p&gt; [&lt;repo&gt;]</td><td class="desc">Wipe rendered secrets from the VM's tmpfs.</td></tr>
-              <tr><td>machine status &lt;p&gt;</td><td class="desc"><code>limactl list</code> for that VM.</td></tr>
-              <tr><td>machine update &lt;p&gt;</td><td class="desc">Refresh in-place: <code>apt upgrade</code>, npm globals, claude installer. <code>--reprovision</code> also re-applies TOML configs.</td></tr>
-              <tr><td>machine rebuild &lt;p&gt;</td><td class="desc"><strong>Destroys</strong> the VM and rebuilds from scratch (the reproducibility test). <code>-y</code> skips confirmation.</td></tr>
+              <tr><td>machine list</td><td class="desc">List VMs (<code>limactl list</code>) plus configured-but-not-yet-created projects.</td></tr>
               <tr><td>machine destroy &lt;p&gt;</td><td class="desc">Delete the VM. <code>-y</code> skips confirmation.</td></tr>
+              <tr><td>machine bake</td><td class="desc">Build/refresh the cached base disk in <code>~/.cache/machine</code> used by <code>up</code>. <code>--force</code> rebuilds even if the cache hash is fresh.</td></tr>
+              <tr><td>machine secrets &lt;p&gt; [--repo &lt;r&gt;]</td><td class="desc">Render 1Password Environment(s) into VM tmpfs. <code>--clear</code> wipes them. See <a href="#secrets">§10</a>.</td></tr>
+              <tr><td>machine init</td><td class="desc">Write a starter <code>projects.toml</code> to <code>~/.config/machine/</code>.</td></tr>
+              <tr><td>machine doctor</td><td class="desc">Preflight host checks: lima, SSH agent keys, git identity, signing-key resolution, <code>op</code> CLI note, <code>projects.toml</code> presence.</td></tr>
             </tbody>
           </table>
         </div>
@@ -180,37 +175,28 @@
 
       <section id="ide">
         <h2><span class="num">06</span>IDE integration</h2>
-        <p><code>machine up &lt;project&gt;</code> (and <code>rebuild</code>/<code>destroy</code>) maintains a sentinel-delimited block in <code>~/.ssh/config</code>, so any IDE that reads SSH config sees the VM directly:</p>
-        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>~/.ssh/config</span></div><code><span class="kw">Host</span> machine-&lt;project&gt;
-    <span class="kw">HostName</span> 127.0.0.1
-    <span class="kw">Port</span> &lt;lima-port&gt;
-    <span class="kw">User</span> &lt;vm-user&gt;
-    <span class="kw">IdentityFile</span> &lt;lima-key&gt;
-    <span class="kw">IdentitiesOnly</span> yes
-    <span class="kw">StrictHostKeyChecking</span> no
-    <span class="kw">UserKnownHostsFile</span> /dev/null
-    <span class="kw">ForwardAgent</span> yes</code></pre>
-        <p>In VS Code → Remote-SSH: open the host picker, pick <code>machine-&lt;project&gt;</code>, then open <code>/home/&lt;vm-user&gt;/code/&lt;repo&gt;</code>. Same flow in Cursor and JetBrains Gateway. <code>ForwardAgent yes</code> means commit signing and <code>gh</code> work in the IDE's integrated terminal just like in <code>machine ssh</code>.</p>
-        <p><code>machine doctor</code> reports drift — missing block, stale ports, orphan entries, loose permissions. The block is rewritten end-to-end on every <code>up</code>/<code>rebuild</code>/<code>destroy</code>, so running <code>machine up &lt;any-project&gt;</code> is the recovery path if it ever goes out of sync.</p>
+        <p>Lima maintains a per-VM SSH config at <code>~/.lima/&lt;project&gt;/ssh.config</code>. Add a single include to <code>~/.ssh/config</code> once, and any IDE that reads SSH config sees every VM:</p>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>~/.ssh/config</span></div><code><span class="kw">Include</span> ~/.lima/*/ssh.config</code></pre>
+        <p>The host alias for a project is <code>lima-&lt;project&gt;</code>. In VS Code → Remote-SSH: open the host picker, pick <code>lima-&lt;project&gt;</code>, then open <code>/home/&lt;vm-user&gt;.linux/code/&lt;repo&gt;</code>. Same flow in Cursor and JetBrains Gateway. Lima's config sets <code>ForwardAgent yes</code>, so commit signing and <code>gh</code> work in the IDE's integrated terminal just like in <code>machine ssh</code>.</p>
+        <p>Because Lima owns the config file, it stays correct across <code>up</code>/<code>down</code>/<code>destroy</code> automatically — there is no host <code>~/.ssh/config</code> block for <code>machine</code> to manage.</p>
       </section>
 
       <section id="provisioning">
         <h2><span class="num">07</span>Provisioning</h2>
-        <p>The provisioning system is declarative: tools are listed in TOML, and a small Python dispatcher applies them inside the VM.</p>
+        <p>Provisioning is Lima-native. <code>machine up</code> generates <code>.build/&lt;p&gt;/lima.yaml</code>, a <code>base:</code> stack of the project's <code>templates/&lt;profile&gt;.yaml</code> (reversed) plus <code>templates/base.yaml</code> last. Lima merges the stack, and cloud-init applies the declared provisioning inside the VM on <strong>every boot</strong>:</p>
         <ul>
-          <li><code>provision.toml</code> — the base config, always applied. Lists apt packages, third-party apt repos (Docker, GitHub CLI, NodeSource for Node), <code>curl|bash</code> installers (Claude Code), npm globals (Codex, TypeScript), <code>/etc/profile.d</code> snippets, Claude marketplace + plugins.</li>
-          <li><code>profiles/&lt;name&gt;.toml</code> — opt-in add-ons (see <a href="#profiles">§08</a>).</li>
-          <li><code>provision/run.py</code> — reads the base + selected profiles, merges, and runs them in fixed step order. Idempotent via sentinels under <code>/var/lib/dev-vm/provisioned/</code>.</li>
+          <li><code>mode: data</code> dotfiles — <code>~/.zshrc</code>, fish config, <code>/etc/profile.d</code> snippets, pre-seeded <code>known_hosts</code>, and the git identity/signing config rendered from Lima params.</li>
+          <li><code>provision/*.sh</code> scripts — <code>base.sh</code> (apt repos + packages, Docker, Node, Claude Code + plugins, npm globals) runs first; then one script per selected profile.</li>
         </ul>
-        <p>Adding a tool that fits a typed section (apt package, npm global, apt repo, <code>curl|bash</code> installer, GitHub release tarball, Claude plugin) is one line of TOML. The <code>[[shell]]</code> section is an escape hatch for genuinely shell-shaped one-offs (writing config files, <code>chsh</code>, etc.). Schema reference is in the comments at the top of <code>provision.toml</code>.</p>
+        <p>Because everything re-runs on boot, re-provisioning in place is just <code>machine down &amp;&amp; machine up</code> — the scripts are idempotent. To start truly fresh, <code>machine destroy &amp;&amp; machine up</code>. Changing your git identity or signing key requires a recreate (params are fixed when the VM is created). A provisioned base disk is baked once into <code>~/.cache/machine</code> and reused, auto-invalidated by a content hash over <code>templates/base.yaml</code>, <code>provision/</code>, and <code>files/</code>.</p>
 
         <h3>What happens on <code>machine up &lt;p&gt;</code></h3>
         <ul>
-          <li>If the VM doesn't exist, <code>limactl create --name=&lt;p&gt;</code> against <code>lima.yaml</code>, then <code>limactl start &lt;p&gt;</code>.</li>
-          <li>Push <code>provision.toml</code>, the project's <code>profiles/&lt;name&gt;.toml</code> files, <code>provision/run.py</code>, and the <code>files/</code> tree into <code>/opt/dev-vm/</code> on the VM.</li>
-          <li>Render <code>files/git/*.tpl</code> on the host (substituting your name, email, and SSH signing pubkey), and push the results to the same location.</li>
-          <li>Run <code>sudo python3 /opt/dev-vm/provision/run.py provision.toml &lt;profiles…&gt;</code> inside the VM.</li>
-          <li>Clone the listed <code>repos</code> into <code>~/code/&lt;basename&gt;/</code> in parallel.</li>
+          <li>If no fresh base disk is cached, bake one into <code>~/.cache/machine</code> (a provisioned base VM exported once per template/provision change).</li>
+          <li>Render <code>.build/&lt;p&gt;/lima.yaml</code> — the <code>base:</code> stack of profile templates plus <code>base.yaml</code>, with the cached disk prepended as the top-priority image.</li>
+          <li>If the VM doesn't exist, <code>limactl create --name=&lt;p&gt; --set '.param.gitName=…' …</code> against that template, then <code>limactl start &lt;p&gt;</code> — which blocks until the provisioning probe passes.</li>
+          <li>cloud-init applies the <code>mode: data</code> dotfiles and runs the provision scripts inside the VM.</li>
+          <li>Clone the listed <code>repos</code> into <code>~/code/&lt;basename&gt;/</code>.</li>
         </ul>
         <p>GitHub auth and commit signing both use the forwarded SSH agent — private keys never leave the host; the VM only sees signatures and <code>ssh -A</code> proxied auth.</p>
       </section>
@@ -223,14 +209,11 @@
             <thead><tr><th>profile</th><th>what's in it</th></tr></thead>
             <tbody>
               <tr><td>cypress</td><td class="desc">Cypress runtime libs + Chrome (amd64) or Chromium (arm64), Xvfb, GTK/NSS dependencies.</td></tr>
-              <tr><td>supabase-fly</td><td class="desc">Supabase CLI (release tarball) + flyctl (<code>curl|bash</code>). Docker comes from the base image.</td></tr>
-              <tr><td>python</td><td class="desc"><code>uv</code> (package + project manager) + <code>ruff</code> + <code>pyright</code>.</td></tr>
-              <tr><td>rust</td><td class="desc"><code>rustup</code> with the stable toolchain (minimal profile).</td></tr>
-              <tr><td>go</td><td class="desc">Pinned Go from go.dev. Edit the version in <code>profiles/go.toml</code> to bump.</td></tr>
+              <tr><td>supabase-fly</td><td class="desc">Supabase CLI (GitHub release tarball) + flyctl (vendor installer). Docker comes from the base.</td></tr>
             </tbody>
           </table>
         </div>
-        <p>A profile is one TOML file. Copy <a href="https://github.com/katspaugh/machine/tree/main/profiles">an existing one</a>, change three lines, commit it.</p>
+        <p>A profile is a <code>templates/&lt;name&gt;.yaml</code> + <code>provision/&lt;name&gt;.sh</code> pair. Copy <a href="https://github.com/katspaugh/machine/tree/main/templates">an existing one</a>, point it at a new script, and reference the profile name in <code>projects.toml</code>.</p>
       </section>
 
       <section id="ssh-agent">
@@ -258,7 +241,7 @@
 <span class="prompt">$ </span>direnv allow</code></pre>
         <p>Then on the host:</p>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine secrets &lt;project&gt;               <span class="cmt"># syncs every .envrc using `use op_env` in that VM</span>
-<span class="prompt">$ </span>machine secrets &lt;project&gt; &lt;repo&gt;        <span class="cmt"># narrow to one repo within a multi-repo project</span></code></pre>
+<span class="prompt">$ </span>machine secrets &lt;project&gt; --repo &lt;repo&gt; <span class="cmt"># narrow to one repo within a multi-repo project</span></code></pre>
         <p>
           <code>machine secrets</code> reads the Environment from 1Password (Touch ID), pipes the rendered <code>KEY=value</code> pairs into the VM,
           and writes them to <code>$XDG_RUNTIME_DIR/dev-secrets/&lt;env-id&gt;.env</code> — tmpfs, mode 600, gone on reboot. The <code>op_env</code> direnv
@@ -320,7 +303,6 @@
         <h2><span class="num">14</span>Verifying</h2>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>bash tests/run-all.sh &lt;project&gt;     <span class="cmt"># full VM smokes (lint + boot + docker + node + git-sign + …)</span>
 <span class="prompt">$ </span>bash tests/unit.sh                  <span class="cmt"># host-side Python unit tests (no VM)</span>
-<span class="prompt">$ </span>machine validate                    <span class="cmt"># schema-check the TOMLs</span>
 <span class="prompt">$ </span>machine doctor                      <span class="cmt"># preflight host environment</span></code></pre>
         <p><code>tests/run-all.sh</code> requires a provisioned VM (set <code>MACHINE_NAME=&lt;project&gt;</code> or pass the project as arg 1). <code>tests/unit.sh</code> runs offline.</p>
       </section>
@@ -357,9 +339,8 @@
       <div class="foot-col">
         <h5>// profiles</h5>
         <ul>
-          <li><a href="https://github.com/katspaugh/machine/blob/main/profiles/cypress.toml">cypress</a></li>
-          <li><a href="https://github.com/katspaugh/machine/blob/main/profiles/supabase-fly.toml">supabase-fly</a></li>
-          <li><a href="https://github.com/katspaugh/machine/tree/main/profiles">python · rust · go</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/templates/cypress.yaml">cypress</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/templates/supabase-fly.yaml">supabase-fly</a></li>
           <li><a href="#provisioning">Write your own</a></li>
         </ul>
       </div>

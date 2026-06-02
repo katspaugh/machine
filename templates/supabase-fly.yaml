@@ -1,0 +1,4 @@
+# Supabase CLI + fly.io CLI for projects that deploy there.
+provision:
+- mode: system
+  file: provision/supabase-fly.sh
