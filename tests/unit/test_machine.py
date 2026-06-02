@@ -160,6 +160,16 @@ class TestZeroConfig(unittest.TestCase):
             {"default_profile": "cypress"}, "default")
         self.assertEqual((urls, profiles), ([], ["cypress"]))
 
+    def test_parser_defaults_project_to_default(self):
+        ap = self.m.build_parser()
+        for cmd in ("up", "down", "ssh", "claude", "destroy", "secrets"):
+            self.assertEqual(ap.parse_args([cmd]).project, "default", cmd)
+        self.assertEqual(ap.parse_args(["up", "blog"]).project, "blog")
+
+    def test_parser_run_still_requires_project(self):
+        with self.assertRaises(SystemExit):
+            self.m.build_parser().parse_args(["run"])
+
 
 if __name__ == "__main__":
     unittest.main()
