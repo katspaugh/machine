@@ -31,22 +31,13 @@ jobs:
       - name: Unit tests (host-side)
         run: bash tests/unit.sh
 
-      - name: Validate example projects.toml
-        env:
-          PROJECTS_FILE: projects.toml.example
-        run: bin/machine validate
-
-      - name: Dry-run provision (base only)
-        env:
-          SUDO_USER: ubuntu
-        run: python3 provision/run.py --dry-run provision.toml
-
-      - name: Dry-run provision (cypress profile)
-        env:
-          SUDO_USER: ubuntu
-        run: python3 provision/run.py --dry-run provision.toml profiles/cypress.toml
-
-      - name: Dry-run provision (supabase-fly profile)
-        env:
-          SUDO_USER: ubuntu
-        run: python3 provision/run.py --dry-run provision.toml profiles/supabase-fly.toml
+      - name: Validate Lima templates (YAML syntax)
+        run: |
+          pip install pyyaml
+          python3 - <<'EOF'
+          import sys, yaml
+          from pathlib import Path
+          for f in sorted(Path("templates").glob("*.yaml")):
+              yaml.safe_load(f.read_text())
+              print(f"ok {f}")
+          EOF

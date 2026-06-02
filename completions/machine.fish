@@ -8,21 +8,19 @@ function __machine_projects
 try: cfg = tomllib.loads(open('$projects_file').read())
 except: sys.exit()
 for n, v in cfg.items():
-    if n != 'default_profile' and isinstance(v, dict): print(n)" 2>/dev/null
+    if isinstance(v, dict): print(n)" 2>/dev/null
     end
 end
 
-set -l cmds list ps doctor validate up down ssh claude status destroy rebuild run secrets update config
+set -l cmds up down ssh claude run list destroy bake secrets init doctor
 
 complete -c machine -n "not __fish_seen_subcommand_from $cmds" -a "$cmds"
 
-for c in up down ssh claude status destroy rebuild run secrets update
+for c in up down ssh claude run secrets destroy
     complete -c machine -n "__fish_seen_subcommand_from $c" -a '(__machine_projects)'
 end
 
-complete -c machine -n "__fish_seen_subcommand_from up rebuild" -l dry-run -d "Print provision steps without executing"
-complete -c machine -n "__fish_seen_subcommand_from destroy rebuild" -s y -l force -d "Skip confirmation"
-complete -c machine -n "__fish_seen_subcommand_from update" -l reprovision -d "Re-apply TOML provisioning"
+complete -c machine -n "__fish_seen_subcommand_from destroy" -s y -l force -d "Skip confirmation"
+complete -c machine -n "__fish_seen_subcommand_from bake" -l force -d "Rebuild even if cache is fresh"
 complete -c machine -n "__fish_seen_subcommand_from secrets" -l clear -d "Wipe rendered secrets from VM tmpfs"
-complete -c machine -n "__fish_seen_subcommand_from list ps doctor" -l json -d "Machine-readable JSON output"
-complete -c machine -n "__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from add-project" -a add-project -d "Append a project to projects.toml (refuses overwrite)"
+complete -c machine -n "__fish_seen_subcommand_from secrets" -l repo -d "Only this repo"
