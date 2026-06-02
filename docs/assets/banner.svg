@@ -85,7 +85,7 @@
       <circle cx="42" cy="14" r="4" fill="#22c55e"/>
       <text x="64" y="18" fill="#64748b" font-size="11">lima · playground</text>
 
-      <text x="16" y="56" fill="#f472b6" font-size="13">$ machine rebuild</text>
+      <text x="16" y="56" fill="#f472b6" font-size="13">$ machine up playground</text>
       <text x="16" y="78" fill="#94a3b8" font-size="12">› reproducible from TOML</text>
       <text x="16" y="96" fill="#94a3b8" font-size="12">› supabase · flyctl</text>
       <text x="16" y="114" fill="#94a3b8" font-size="12">› 1password env</text>

@@ -79,9 +79,9 @@
             <div class="label"><span class="accent">lima</span> · <span>blog</span></div>
           </div>
           <div class="term-body"><span class="dim">$</span> <span class="cmd">machine up blog</span>
-<span class="dim">→</span> <span class="muted">profile</span>  python · cypress
+<span class="dim">→</span> <span class="muted">profile</span>  cypress · supabase-fly
 <span class="dim">→</span> <span class="muted">image</span>    ubuntu-24.04-arm64
-<span class="dim">→</span> <span class="muted">disk</span>     20G
+<span class="dim">→</span> <span class="muted">disk</span>     30G
 <span class="dim">→</span> <span class="muted">cpu</span>      4 · <span class="muted">mem</span> 8G
 <span class="ok">✓</span> ssh ready  <span class="dim">·</span>  <span class="cmd">machine ssh blog</span>
 <span class="dim">$</span> <span class="cursor"></span></div>
@@ -333,7 +333,7 @@
     <p class="section-eyebrow">// section 05 — demo</p>
     <h2 class="section-title">What it looks like.</h2>
     <p class="section-intro">
-      A VHS replay of the CLI surface — <code>list</code>, <code>up</code>, <code>ssh</code>. The first <code>up</code> is the slow one; subsequent boots are warm restarts.
+      A VHS replay of the CLI surface — <code>list</code>, <code>up</code>, <code>secrets</code>, <code>ssh</code>, <code>down</code>. The first <code>up</code> is the slow one; subsequent boots are warm restarts.
     </p>
 
     <div class="demo-wrap">
@@ -343,7 +343,7 @@
           <span>~/code/blog</span>
         </div>
       </div>
-      <img class="demo-gif" src="assets/machine.gif" alt="Replay of machine list, machine up blog, and machine ssh blog." loading="lazy" width="1100" height="720" />
+      <img class="demo-gif" src="assets/machine.gif" alt="Replay of machine list, machine up wallet, machine secrets, machine ssh, and machine down." loading="lazy" width="1100" height="720" />
     </div>
   </div>
 </section>
@@ -369,6 +369,10 @@
       <div class="cmd-card">
         <div class="k">machine claude <span class="sub">&lt;p&gt;</span></div>
         <div class="v">Skip the shell, jump straight into <code>claude</code> at the primary repo.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine run <span class="sub">&lt;p&gt;</span></div>
+        <div class="v">Run a one-off command in the VM without opening a shell.</div>
       </div>
       <div class="cmd-card">
         <div class="k">machine down <span class="sub">&lt;p&gt;</span></div>
