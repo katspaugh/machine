@@ -47,7 +47,8 @@ $EDITOR ~/.config/machine/projects.toml
 Example `projects.toml`:
 
 ```toml
-default_profile = "cypress"           # applied when a project omits `profiles`
+# Projects without `profiles` get the base VM only. To opt every project
+# into a profile by default: default_profile = "cypress"
 
 [blog]
 repos = ["git@github.com:you/blog.git"]

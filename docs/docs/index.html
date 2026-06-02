@@ -114,7 +114,8 @@
         <p class="muted">In dev mode: <code>cp projects.toml.example projects.toml &amp;&amp; $EDITOR projects.toml</code> from the repo root.</p>
 
         <h3>Example projects.toml</h3>
-        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>projects.toml</span></div><code><span class="kw">default_profile</span> = <span class="str">"cypress"</span>           <span class="cmt"># applied when a project omits `profiles`</span>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>projects.toml</span></div><code><span class="cmt"># Projects without `profiles` get the base VM only.</span>
+<span class="cmt"># To opt every project into a profile: default_profile = "cypress"</span>
 
 <span class="pink">[blog]</span>
 <span class="kw">repos</span> = [<span class="str">"git@github.com:you/blog.git"</span>]

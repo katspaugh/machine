@@ -13,10 +13,10 @@
 # Each repo is cloned into ~/code/<basename(<git-url>)>/ inside the VM.
 # With multiple repos, the first is the "primary" — `machine ssh <name>` opens at its dir.
 
-default_profile = "cypress"
+# default_profile = "cypress"      # off by default: projects without `profiles` get the base VM only.
 # default_shell = "zsh"             # fish and bash are also pre-installed in every VM.
 
-# Single-repo project; uses [default_profile].
+# Single-repo project; base VM only (no profiles).
 # [blog]
 # repos = ["git@github.com:you/blog.git"]
 
