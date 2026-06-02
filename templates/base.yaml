@@ -1,6 +1,7 @@
 # Base VM template. `bin/machine up <p>` generates .build/<p>/lima.yaml with
-# `base: [this file, one per profile]`; Lima merges them (profile provision
-# entries append after ours). Provision scripts run on EVERY boot via
+# `base: [profiles reversed..., this file]` — Lima prepends each successively
+# merged base's provision entries, so listing base.yaml last makes base.sh run
+# first. Provision scripts run on EVERY boot via
 # cloud-init scripts-per-boot — they must stay idempotent.
 #
 # Host values arrive as params (`limactl create --set '.param.X = "..."'`):
