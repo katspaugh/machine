@@ -52,7 +52,7 @@
       <text x="64" y="18" fill="#64748b" font-size="11">lima · blog</text>
 
       <text x="16" y="56" fill="#22d3ee" font-size="13">$ machine up blog</text>
-      <text x="16" y="78" fill="#94a3b8" font-size="12">› cloning git@github.com:you/blog</text>
+      <text x="16" y="78" fill="#94a3b8" font-size="12">› cloning git@github.com...</text>
       <text x="16" y="96" fill="#94a3b8" font-size="12">› node · docker · gh</text>
       <text x="16" y="114" fill="#94a3b8" font-size="12">› claude code ready</text>
       <text x="16" y="148" fill="#34d399" font-size="13">●<tspan fill="#e5e7eb" dx="6">running :3000</tspan></text>
