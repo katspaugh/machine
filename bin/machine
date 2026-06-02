@@ -591,8 +591,19 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if not ok:
             failures += 1
 
-    check("limactl on PATH", shutil.which("limactl") is not None,
-          "brew install lima")
+    have_limactl = shutil.which("limactl") is not None
+    check("limactl on PATH", have_limactl, "brew install lima")
+    if have_limactl:
+        ver = subprocess.run(["limactl", "--version"], capture_output=True, text=True)
+        ver_out = (ver.stdout + ver.stderr).strip()
+        m = re.search(r"(\d+)\.\d+", ver_out)
+        if m:
+            label = f"Lima >= 2.0 ({ver_out})"
+            check(label, int(m.group(1)) >= 2,
+                  "machine needs Lima >= 2.0 — brew upgrade lima")
+        else:
+            # Unparseable version (exotic build): pass with what we got.
+            check(f"Lima >= 2.0 ({ver_out or 'unknown'})", True)
     agent = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True)
     check("SSH agent has keys", agent.returncode == 0,
           "ssh-add --apple-use-keychain ~/.ssh/id_ed25519 (or MACHINE_USE_1PASSWORD=1)")

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start a Python HTTP server in the VM (foreground, time-bounded), then poll
 # it from the host. While the limactl SSH session is alive, python is alive,
-# and Lima's portForwards: range bridges the listener.
+# and Lima auto-forwards listening guest ports to 127.0.0.1 on the host.
 set -euo pipefail
 NAME="${MACHINE_NAME:?set MACHINE_NAME}"
 PORT=3007

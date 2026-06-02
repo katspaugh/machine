@@ -14,7 +14,7 @@ Claude Code comes pre-installed with the official marketplace and these plugins 
 brew install katspaugh/machine/machine
 ```
 
-The formula pulls in `lima` and `python@3.12`. The tap repo is [katspaugh/homebrew-machine](https://github.com/katspaugh/homebrew-machine); each release is pinned to a tagged tarball + SHA256. See [docs/TAP.md](docs/TAP.md) for the release runbook.
+The formula pulls in `lima` (**2.0 or newer is required** — template composition and `mode: data` provisioning don't exist in 1.x) and `python@3.12`. The tap repo is [katspaugh/homebrew-machine](https://github.com/katspaugh/homebrew-machine); each release is pinned to a tagged tarball + SHA256. See [docs/TAP.md](docs/TAP.md) for the release runbook.
 
 Prefer to run from a clone (dev mode)? Skip the brew install and:
 
