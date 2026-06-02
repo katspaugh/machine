@@ -317,7 +317,7 @@ def golden_hash() -> str:
     h.update((REPO / "templates" / "base.yaml").read_bytes())
     for d in (REPO / "provision", REPO / "files"):
         for f in sorted(d.rglob("*")):
-            if f.is_file():
+            if f.is_file() and "__pycache__" not in f.parts:
                 h.update(str(f.relative_to(REPO)).encode())
                 h.update(f.read_bytes())
     return h.hexdigest()[:16]
@@ -453,10 +453,11 @@ def cmd_up(args: argparse.Namespace) -> int:
     close_lima_ssh_master(name)
     urls = project_urls(name)
     profiles = project_profiles(name)
-    params = resolve_params(name)  # fail fast on missing git identity
     verify_repos_reachable(urls)
 
     if not vm_exists(name):
+        # fail fast on missing git identity before the slow bake/create work
+        params = resolve_params(name)
         # A previous `limactl create` may have left a half-populated VM dir
         # behind. It blocks the next create, so clear it before retrying.
         leftover = Path.home() / ".lima" / name
