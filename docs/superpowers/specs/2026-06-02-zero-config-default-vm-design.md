@@ -47,7 +47,9 @@ where a project without repos is meaningless).
   ```
 
   Abort on anything but `y`; catch `EOFError` so non-tty input aborts cleanly
-  instead of tracebacking. The name `default` skips the prompt
+  instead of tracebacking. The prompt is skipped when the VM already exists —
+  re-running `up` on an existing ad-hoc VM stays non-interactive, matching
+  `up`'s idempotent re-provisioning contract. The name `default` skips the prompt
   so bare `machine up` is fully non-interactive. Then proceed with
   `urls = []` and profiles resolved through the existing `default_profile`
   fallback (`[default_profile]` if set, else `[]`) — an ad-hoc VM behaves
