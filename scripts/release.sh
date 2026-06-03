@@ -5,11 +5,13 @@
 #   e.g. scripts/release.sh 0.1.1   (leading 'v' optional)
 #
 # What it does:
-#   1. Tags vX.Y.Z in this repo and pushes the tag.
-#   2. Downloads the tagged tarball from GitHub, computes its sha256.
-#   3. Rewrites url + sha256 in this repo's Formula/machine.rb, commits, pushes main.
-#   4. Clones katspaugh/homebrew-machine, mirrors the formula, commits, pushes.
-#   5. Creates a GitHub Release with auto-generated notes.
+#   1. Bumps version in flake.nix and commits (the tag must carry it — the
+#      flake builds from its own source tree).
+#   2. Tags vX.Y.Z in this repo and pushes the tag.
+#   3. Downloads the tagged tarball from GitHub, computes its sha256.
+#   4. Rewrites url + sha256 in this repo's Formula/machine.rb, commits, pushes main.
+#   5. Clones katspaugh/homebrew-machine, mirrors the formula, commits, pushes.
+#   6. Creates a GitHub Release with auto-generated notes.
 
 set -euo pipefail
 
@@ -32,18 +34,32 @@ command -v gh >/dev/null \
 gh auth status >/dev/null 2>&1 \
   || { echo "gh not authenticated (gh auth login)" >&2; exit 1; }
 
-# 1. Tag + push
+# 1. Bump flake.nix version — must land before the tag so the tagged
+#    commit builds with the right version (the flake's src is `self`).
+if grep -q "version = \"$VERSION\";" flake.nix; then
+  echo "==> flake.nix already at $VERSION"
+else
+  echo "==> updating flake.nix version to $VERSION"
+  sed -i.bak -E \
+    "s|^([[:space:]]*version = \")[0-9]+\\.[0-9]+\\.[0-9]+(\";)|\\1$VERSION\\2|" \
+    flake.nix
+  rm -f flake.nix.bak
+  git add flake.nix
+  git commit -m "Bump flake version to $TAG"
+fi
+
+# 2. Tag + push
 echo "==> tagging $TAG"
 git tag -a "$TAG" -m "$TAG"
 git push origin "$TAG"
 
-# 2. Compute tarball sha256
+# 3. Compute tarball sha256
 echo "==> fetching $TAR_URL to compute sha256"
 SHA=$(curl -fsSL "$TAR_URL" | shasum -a 256 | awk '{print $1}')
 [ -n "$SHA" ] || { echo "failed to compute sha256" >&2; exit 1; }
 echo "    sha256=$SHA"
 
-# 3. Bump this repo's reference formula
+# 4. Bump this repo's reference formula
 echo "==> updating $REPO_DIR/Formula/machine.rb"
 sed -i.bak -E \
   -e "s|(archive/refs/tags/)v[0-9]+\\.[0-9]+\\.[0-9]+(\\.tar\\.gz)|\\1$TAG\\2|" \
@@ -54,7 +70,7 @@ git add Formula/machine.rb
 git commit -m "Pin Formula/machine.rb to $TAG SHA256"
 git push origin HEAD
 
-# 4. Mirror into the tap
+# 5. Mirror into the tap
 echo "==> updating tap $TAP_REMOTE"
 trap 'rm -rf "$TAP_DIR"' EXIT
 git clone --depth 1 "$TAP_REMOTE" "$TAP_DIR"
@@ -70,7 +86,7 @@ cp Formula/machine.rb "$TAP_DIR/Formula/machine.rb"
   fi
 )
 
-# 5. GitHub Release with auto notes
+# 6. GitHub Release with auto notes
 echo "==> creating GitHub release $TAG"
 gh release create "$TAG" --title "$TAG" --generate-notes
 
