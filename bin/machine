@@ -523,6 +523,13 @@ def cmd_down(args: argparse.Namespace) -> int:
     name = args.project
     if not vm_exists(name):
         die(f"VM '{name}' does not exist")
+    status = subprocess.run(
+        ["limactl", "list", "--format={{.Status}}", name],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    if status and status != "Running":
+        print(f"VM '{name}' is already {status.lower()}")
+        return 0
     run(["limactl", "stop", name])
     return 0
 
