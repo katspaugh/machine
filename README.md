@@ -31,7 +31,7 @@ The repo is also a flake — no Homebrew needed:
 
 ```sh
 nix profile install github:katspaugh/machine   # install
-nix run github:katspaugh/machine -- up         # or run one-off
+nix run github:katspaugh/machine -- doctor     # or run one-off
 ```
 
 The flake pins its own Lima (≥ 2.0) and Python from nixpkgs-unstable. Pin a release with `github:katspaugh/machine/v0.2.0`.
