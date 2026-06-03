@@ -55,10 +55,8 @@ detach: ctrl-b d — claude keeps running; reattach: machine claude <name>
 
 ### Provisioning
 
-- Add `tmux` to the base apt package list in `provision/base.sh`. It must be
-  preinstalled — the feature can't depend on the user installing it.
-- Re-provisioning an existing VM picks it up via the usual
-  `machine down && machine up` (provision scripts re-run on every boot).
+- `tmux` is already in the base apt package list (`provision/base.sh:43`) —
+  no provisioning change needed. Every provisioned VM has it.
 
 ### Failure mode
 
