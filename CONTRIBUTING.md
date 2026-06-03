@@ -2,7 +2,7 @@
 
 ## Dev setup
 
-Run from a clone — no Homebrew install needed:
+Run from a clone — no Homebrew install of `machine` needed (Lima 2.0+ must be on your PATH: `brew install lima`, or use the Nix flake):
 
 ```sh
 git clone git@github.com:katspaugh/machine.git
@@ -25,6 +25,8 @@ In dev mode `projects.toml` lives at the repo root
 CI runs lint + unit on every PR. The VM smoke suite runs on pushes to main
 and nightly (`.github/workflows/smoke.yml`) — it boots a real Lima VM, so
 it's not on the PR path. Please run lint + unit locally before pushing.
+
+`tests/run-all.sh` also reads the target VM from `MACHINE_NAME` if no argument is given.
 
 ## Writing a profile (the most useful contribution)
 
