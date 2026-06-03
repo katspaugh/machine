@@ -7,7 +7,7 @@ limactl shell "$NAME" -- bash -lc 'command -v supabase && supabase --version'
 limactl shell "$NAME" -- bash -lc 'command -v flyctl && flyctl version'
 limactl shell "$NAME" -- bash -lc 'command -v gh && gh --version'
 
-# Base CLI tools (provision/base.sh).
+# Modern CLI tools (provision/modern.sh; rg is in the base apt set).
 limactl shell "$NAME" -- bash -lc 'command -v rg && rg --version'
 limactl shell "$NAME" -- bash -lc 'command -v batcat && batcat --version'
 limactl shell "$NAME" -- bash -lc 'command -v fzf && fzf --version'

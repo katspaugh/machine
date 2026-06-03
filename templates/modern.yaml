@@ -1,0 +1,5 @@
+# Modern CLI tools (bat, delta, fzf, lazygit, helix) + delta as git's pager.
+# Stacks on base.yaml via the generated per-project template's `base:` list.
+provision:
+- mode: system
+  file: provision/modern.sh
