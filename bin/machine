@@ -566,8 +566,15 @@ def cmd_claude(args: argparse.Namespace) -> int:
     if workdir:
         cmd += ["--workdir", workdir]
     # Login+interactive bash so /etc/profile.d/* sets PATH the same way
-    # `machine ssh` users see, then hand the tty to claude.
-    cmd += [name, "bash", "-lic", "exec claude"]
+    # `machine ssh` users see, then hand the tty to tmux. `new-session -A`
+    # creates the session on first run and reattaches on subsequent runs
+    # (a dropped SSH connection leaves claude running). claude is the
+    # session command, so the session ends when claude exits.
+    cmd += [name, "bash", "-lic", "exec tmux new-session -A -s claude claude"]
+    print(
+        f"detach: ctrl-b d — claude keeps running; reattach: machine claude {name}",
+        file=sys.stderr,
+    )
     os.execvp("limactl", cmd)
 
 
