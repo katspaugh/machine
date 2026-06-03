@@ -14,7 +14,7 @@ name: Smoke
 on:
   workflow_dispatch:
   push:
-    branches: [main, worktree-shimmying-gliding-melody] # TEMP: branch added for pre-merge verification; remove before merge
+    branches: [main]
   schedule:
     - cron: "17 3 * * *" # nightly 03:17 UTC
 
