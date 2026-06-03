@@ -3,6 +3,7 @@ import importlib.util
 import os
 import tempfile
 import unittest
+from unittest import mock
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
@@ -55,6 +56,12 @@ class TestHelpers(unittest.TestCase):
             self.m.validate_name("Bad_Name")
         self.m.validate_name("ok-name-2")  # no raise
 
+    def test_default_profiles(self):
+        self.assertEqual(self.m.default_profiles({}), [])
+        self.assertEqual(
+            self.m.default_profiles({"default_profile": "cypress"}), ["cypress"])
+        self.assertEqual(self.m.default_profiles({"default_profile": ""}), [])
+
     def test_project_profiles_default_and_explicit(self):
         self.assertEqual(self.m.project_profiles("blog"), ["cypress"])
         self.assertEqual(self.m.project_profiles("wallet"), ["cypress", "supabase-fly"])
@@ -95,6 +102,73 @@ class TestHelpers(unittest.TestCase):
     def test_render_template_rejects_unknown_profile(self):
         with self.assertRaises(SystemExit):
             self.m.render_template("wallet", ["nope"], golden=False)
+
+    def test_resolve_up_known_project(self):
+        urls, profiles = self.m.resolve_up_target(self.m.load_projects(), "blog")
+        self.assertEqual(urls, ["git@github.com:me/blog.git"])
+        self.assertEqual(profiles, ["cypress"])
+
+
+class TestZeroConfig(unittest.TestCase):
+    """Behavior with no projects.toml at all (zero-config mode)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.m = load_machine({
+            "PROJECTS_FILE": str(Path(self.tmp.name) / "projects.toml"),
+            "MACHINE_STATE_DIR": str(Path(self.tmp.name) / "state"),
+        })
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_load_projects_missing_file_returns_empty(self):
+        self.assertEqual(self.m.load_projects(), {})
+
+    def test_resolve_up_default_never_prompts(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch("builtins.input", side_effect=AssertionError("prompted")):
+            urls, profiles = self.m.resolve_up_target({}, "default")
+        self.assertEqual((urls, profiles), ([], []))
+
+    def test_resolve_up_unknown_name_accepted(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch("builtins.input", return_value="y"):
+            urls, profiles = self.m.resolve_up_target({}, "scratch")
+        self.assertEqual((urls, profiles), ([], []))
+
+    def test_resolve_up_unknown_name_declined(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch("builtins.input", return_value=""):
+            with self.assertRaises(SystemExit):
+                self.m.resolve_up_target({}, "scratch")
+
+    def test_resolve_up_unknown_name_eof_aborts(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch("builtins.input", side_effect=EOFError):
+            with self.assertRaises(SystemExit):
+                self.m.resolve_up_target({}, "scratch")
+
+    def test_resolve_up_existing_vm_skips_prompt(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=True), \
+             mock.patch("builtins.input", side_effect=AssertionError("prompted")):
+            urls, profiles = self.m.resolve_up_target({}, "scratch")
+        self.assertEqual((urls, profiles), ([], []))
+
+    def test_resolve_up_ad_hoc_honors_default_profile(self):
+        urls, profiles = self.m.resolve_up_target(
+            {"default_profile": "cypress"}, "default")
+        self.assertEqual((urls, profiles), ([], ["cypress"]))
+
+    def test_parser_defaults_project_to_default(self):
+        ap = self.m.build_parser()
+        for cmd in ("up", "down", "ssh", "claude", "destroy", "secrets"):
+            self.assertEqual(ap.parse_args([cmd]).project, "default", cmd)
+        self.assertEqual(ap.parse_args(["up", "blog"]).project, "blog")
+
+    def test_parser_run_still_requires_project(self):
+        with self.assertRaises(SystemExit):
+            self.m.build_parser().parse_args(["run"])
 
 
 if __name__ == "__main__":
