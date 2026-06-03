@@ -26,14 +26,21 @@ one high-value content page, then do a listings pass.
 
 ## Design
 
-### 1. macOS CI smoke job
+### 1. CI smoke job (Linux + KVM)
 
-New `smoke-macos` job in `.github/workflows/ci.yml`:
+*(Amended 2026-06-03 after empirical verification: GitHub's Apple-silicon
+macOS runners do not support nested virtualization — Lima's vz backend dies
+instantly at "Starting VZ". User-approved decision: run the smoke on
+`ubuntu-latest`, which exposes `/dev/kvm`, booting the same Ubuntu guest via
+qemu/KVM with a CI-only `vmType` sed. The vz path is exercised by developers
+on real Macs.)*
 
-- Runs on a GitHub-hosted Apple-silicon macOS runner. `brew install lima`,
-  write a minimal `projects.toml` (one project, **no repos** — avoids needing
-  SSH keys in CI), `machine up ci-smoke`, run the in-VM smoke suite, then
-  `machine destroy -y ci-smoke`.
+New `smoke-linux-kvm` job in `.github/workflows/smoke.yml`:
+
+- Runs on `ubuntu-latest`: enable /dev/kvm (udev rule), install qemu + a
+  pinned Lima release tarball, write a minimal `projects.toml` (one project,
+  **no repos** — avoids needing SSH keys in CI), `machine up ci`, run the
+  in-VM smoke suite, then `machine destroy -y ci`.
 - The git-signing smoke runs for real in CI: a throwaway ed25519 key in an
   ssh-agent plus `GIT_SIGNING_KEY=<literal pubkey>` is enough — signing
   verifies against the rendered `allowed_signers`, no GitHub account
