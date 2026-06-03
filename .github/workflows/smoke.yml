@@ -1,9 +1,13 @@
 name: Smoke
 
-# Boots a real Lima VM on a macOS runner, provisions every profile, and runs
-# the full in-VM smoke suite (tests/run-all.sh). Heavy (~30-60 min), so it
-# runs on pushes to main and nightly — not on PRs. `workflow_dispatch` is for
-# manual runs while iterating.
+# Boots a real Lima VM (qemu/KVM) on a Linux runner, provisions every profile,
+# and runs the full in-VM smoke suite (tests/run-all.sh). We use ubuntu-latest
+# because GitHub's Apple-silicon macOS runners lack nested virtualization (the
+# vz backend dies instantly at "Starting VZ"); ubuntu-latest exposes /dev/kvm,
+# so we boot the VM with qemu/KVM instead. The vz path is exercised by
+# developers running on real Macs. Heavy (~30-60 min), so it runs on pushes to
+# main and nightly — not on PRs. `workflow_dispatch` is for manual runs while
+# iterating.
 #
 # No untrusted inputs are interpolated into `run:` steps; all values are
 # workflow-literal or come from checked-in files.
@@ -21,16 +25,31 @@ concurrency:
   group: smoke-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  LIMA_VERSION: "2.1.2"
+
 jobs:
-  smoke-macos:
-    runs-on: macos-26
+  smoke-linux-kvm:
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Lima
+      - name: Enable KVM for the runner user
         run: |
-          brew install lima
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Install qemu + Lima ${{ env.LIMA_VERSION }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils
+          curl -fsSL -o /tmp/lima.tar.gz \
+            "https://github.com/lima-vm/lima/releases/download/v${LIMA_VERSION}/lima-${LIMA_VERSION}-Linux-x86_64.tar.gz"
+          sudo tar -C /usr/local -xzf /tmp/lima.tar.gz
           limactl --version
           python3 --version
 
@@ -56,6 +75,11 @@ jobs:
           profiles = ["cypress", "playwright", "supabase-fly", "modern"]
           repos = []
           EOF
+
+      - name: Use qemu instead of vz (CI-only template tweak)
+        run: |
+          sed -i 's/^vmType: vz$/vmType: qemu/' templates/base.yaml
+          grep -n 'vmType' templates/base.yaml
 
       - name: machine up
         run: ./bin/machine up ci

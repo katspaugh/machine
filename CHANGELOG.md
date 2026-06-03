@@ -10,8 +10,8 @@ by `scripts/release.sh`.
 ### Added
 - `modern` opt-in profile: bat, delta, fzf, lazygit, helix — opt in per
   project; `rg` remains in the base VM.
-- macOS CI smoke workflow: boots a real Lima VM on push to `main` and
-  nightly; runs the full in-VM smoke suite.
+- CI smoke workflow: boots a real Lima VM (qemu/KVM on a Linux runner) on
+  push to `main` and nightly; runs the full in-VM smoke suite.
 
 ### Fixed
 - `machine down` is idempotent when the VM is already stopped.
