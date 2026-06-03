@@ -25,6 +25,17 @@ git clone git@github.com:katspaugh/machine.git ~/Sites/machine
 
 In dev mode `projects.toml` lives at the repo root; under brew it lives at `~/.config/machine/projects.toml` (override with `MACHINE_CONFIG_DIR`).
 
+### Nix
+
+The repo is also a flake — no Homebrew needed:
+
+```sh
+nix profile install github:katspaugh/machine   # install
+nix run github:katspaugh/machine -- up         # or run one-off
+```
+
+The flake pins its own Lima (≥ 2.0) and Python from nixpkgs-unstable. Pin a release with `github:katspaugh/machine/v0.2.0`.
+
 ## Prerequisites
 
 - An SSH key on the host, served by an agent the VM can forward. Either:
