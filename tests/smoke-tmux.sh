@@ -6,6 +6,11 @@ NAME="${MACHINE_NAME:?set MACHINE_NAME}"
 
 SESSION="machine-smoke-tmux"
 
+# Interrupt-safe cleanup: an aborted run would otherwise leak the
+# `sleep 300` session until it self-expires.
+cleanup() { limactl shell "$NAME" -- bash -lc "tmux kill-session -t $SESSION 2>/dev/null; true" || true; }
+trap cleanup EXIT
+
 # tmux present (provision/base.sh apt list).
 limactl shell "$NAME" -- bash -lc 'command -v tmux >/dev/null' \
   || { echo "tmux not installed"; exit 1; }
@@ -18,6 +23,13 @@ limactl shell "$NAME" -- bash -lc "tmux new-session -d -s $SESSION 'sleep 300'"
 # The session outlives the connection that created it.
 limactl shell "$NAME" -- bash -lc "tmux has-session -t $SESSION" \
   || { echo "detached session did not survive"; exit 1; }
+
+# `new-session -A` against a live session must reattach, not double-create
+# (the cmd_claude mechanism). Running `new-session -A` over `limactl shell`
+# has no tty and fails outright, so assert the single-session invariant by
+# counting instead: there must be exactly one session of this name.
+count=$(limactl shell "$NAME" -- bash -lc "tmux list-sessions -F '#S' | grep -cx $SESSION")
+[ "$count" = "1" ] || { echo "expected exactly 1 session, got $count"; exit 1; }
 
 # Killing the session removes it (mirrors claude exiting).
 limactl shell "$NAME" -- bash -lc "tmux kill-session -t $SESSION"
