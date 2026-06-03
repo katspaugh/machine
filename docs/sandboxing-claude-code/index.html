@@ -10,7 +10,7 @@
   <meta property="og:url" content="https://runmachine.dev/sandboxing-claude-code/" />
   <meta property="og:type" content="article" />
   <meta property="og:title" content="Sandboxing Claude Code — machine" />
-  <meta property="og:description" content="Run AI coding agents with full autonomy inside an isolated VM — no host filesystem, no cross-project bleed." />
+  <meta property="og:description" content="Run Claude Code with full autonomy inside an isolated VM — no host filesystem, no cross-project bleed." />
   <meta property="og:image" content="https://runmachine.dev/assets/banner.svg" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content="https://runmachine.dev/assets/banner.svg" />
@@ -160,7 +160,7 @@
               <tr>
                 <th>Docker workloads inside</th>
                 <td>Yes (host Docker)</td>
-                <td>Docker-in-Docker or socket mounting — the latter pierces the sandbox</td>
+                <td>Docker-in-Docker (needs <code>--privileged</code>) or socket mounting — both weaken the sandbox; socket mounting pierces it outright</td>
                 <td>Yes — real dockerd inside the VM</td>
               </tr>
               <tr>
@@ -194,7 +194,7 @@
         <h3>What if the agent wrecks the VM?</h3>
         <p><code>machine destroy &amp;&amp; machine up</code> — a fresh, fully provisioned VM in about a minute from the cached base disk.</p>
         <h3>Is my code safe from the agent?</h3>
-        <p>The code in the VM is the agent's working copy — push protection comes from review and the forwarded-agent model (it can't approve its own GitHub credentials beyond what the agent socket allows while you're connected).</p>
+        <p>The code in the VM is the agent's working copy, so the agent can read and modify it freely. Push protection is on you — the forwarded SSH agent means the VM can push commits on your behalf, so use branch protection and review the diff before merging, as you would with any autonomous agent.</p>
       </section>
 
       <div class="manual-end">
