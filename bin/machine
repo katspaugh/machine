@@ -415,9 +415,10 @@ def verify_repos_reachable(urls: Sequence[str]) -> None:
         die("\n".join(lines))
 
 
-def clone_repo(vm: str, url: str) -> None:
+def clone_repo(vm: str, url: str) -> str | None:
     """Clone one repo into ~/code/<basename>/ inside the VM. Idempotent.
-    JS dependency install is best-effort (non-fatal)."""
+    JS dependency install is best-effort; returns a warning string when it
+    fails (None otherwise) so cmd_up can surface it in the summary."""
     repo_name = repo_basename(url)
     rc = lima_shell(
         vm,
@@ -426,7 +427,7 @@ def clone_repo(vm: str, url: str) -> None:
     ).returncode
     if rc == 0:
         print(f"[clone] {repo_name}: already present")
-        return
+        return None
     print(f"[clone] {repo_name}")
     run(["limactl", "shell", vm, "--",
          "env",
@@ -448,6 +449,8 @@ def clone_repo(vm: str, url: str) -> None:
     deps_rc = lima_shell(vm, ["bash", "-lc", deps_script]).returncode
     if deps_rc != 0:
         print(f"[deps] {repo_name}: install failed (continuing)", file=sys.stderr)
+        return f"deps install failed for {repo_name} — re-run inside the VM"
+    return None
 
 
 # --- Commands ----------------------------------------------------------------
@@ -502,9 +505,17 @@ def cmd_up(args: argparse.Namespace) -> int:
     # Blocks until the provisioning probe passes (see templates/base.yaml).
     run(["limactl", "start", name])
 
+    warnings = []
     for url in urls:
-        clone_repo(name, url)
-    print(f"✓ {name} ready — run 'machine ssh {name}' to log in.")
+        warning = clone_repo(name, url)
+        if warning:
+            warnings.append(warning)
+    if warnings:
+        print(f"⚠ {name} ready with warnings:")
+        for warning in warnings:
+            print(f"  {warning}")
+    else:
+        print(f"✓ {name} ready — run 'machine ssh {name}' to log in.")
     return 0
 
 
@@ -525,16 +536,17 @@ def _primary_repo_workdir(name: str) -> str | None:
     if not urls:
         return None
     repo_name = repo_basename(urls[0])
-    rc = lima_shell(
+    # Ask the guest for the real path instead of fabricating it from the
+    # host $USER (host and guest usernames need not match).
+    out = lima_shell(
         name,
-        ["bash", "-lc", f'[ -d "$HOME/code/{shlex.quote(repo_name)}" ]'],
+        ["bash", "-lc", f'cd "$HOME/code/{shlex.quote(repo_name)}" && pwd'],
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    ).returncode
-    if rc != 0:
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
         return None
-    user = os.environ["USER"]
-    return f"/home/{user}.linux/code/{repo_name}"
+    return out.stdout.strip() or None
 
 
 def cmd_ssh(args: argparse.Namespace) -> int:
@@ -696,11 +708,16 @@ def cmd_secrets(args: argparse.Namespace) -> int:
     name = args.project
     if not shutil.which("op"):
         die("'op' CLI required (brew install 1password-cli)")
+    # `|| true` swallows find's own exit code (~/code may not exist yet on a
+    # fresh VM), so a non-zero rc below can only mean limactl couldn't reach
+    # the VM — keeping "unreachable" distinct from "nothing found".
     find_envrcs = subprocess.run(
         ["limactl", "shell", name, "--", "bash", "-lc",
-         "find ~/code -mindepth 2 -maxdepth 3 -name .envrc -type f 2>/dev/null"],
+         "find ~/code -mindepth 2 -maxdepth 3 -name .envrc -type f 2>/dev/null || true"],
         capture_output=True, text=True,
     )
+    if find_envrcs.returncode != 0:
+        die(f"cannot reach VM '{name}' — is it running? (machine up {name})")
     count = 0
     for path in find_envrcs.stdout.splitlines():
         path = path.strip()
@@ -750,11 +767,14 @@ def cmd_secrets_clear(args: argparse.Namespace) -> int:
         )
         run(["limactl", "shell", name, "--", "bash", "-lc", body])
         return 0
-    envrc_path = subprocess.run(
+    probe = subprocess.run(
         ["limactl", "shell", name, "--", "bash", "-lc",
          f"ls $HOME/code/{shlex.quote(args.repo)}/.envrc 2>/dev/null || true"],
         capture_output=True, text=True,
-    ).stdout.strip()
+    )
+    if probe.returncode != 0:
+        die(f"cannot reach VM '{name}' — is it running? (machine up {name})")
+    envrc_path = probe.stdout.strip()
     if not envrc_path:
         die(f"no .envrc for repo '{args.repo}' in VM '{name}'")
     env_id = extract_env_id(name, envrc_path)
