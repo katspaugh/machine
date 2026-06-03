@@ -276,6 +276,35 @@ class TestCloneWarnings(_MachineTestCase):
         self.assertNotIn("✓", out)
 
 
+class TestProjectFromPsArgs(_MachineTestCase):
+    def test_ssh_form_with_full_limactl_path(self):
+        ps = (
+            "-fish\n"
+            "/opt/homebrew/bin/limactl shell --workdir /home/me.linux/code/blog blog\n"
+        )
+        self.assertEqual(self.m._project_from_ps_args(ps), "blog")
+
+    def test_claude_form_with_trailing_command(self):
+        ps = ("limactl shell --workdir /home/me.linux/code/a wallet "
+              "bash -lic exec tmux new-session -A -s claude claude\n")
+        self.assertEqual(self.m._project_from_ps_args(ps), "wallet")
+
+    def test_bare_form(self):
+        self.assertEqual(self.m._project_from_ps_args("limactl shell default\n"),
+                         "default")
+
+    def test_workdir_equals_form(self):
+        ps = "limactl shell --workdir=/home/me/code/blog blog\n"
+        self.assertEqual(self.m._project_from_ps_args(ps), "blog")
+
+    def test_no_limactl_on_tty(self):
+        ps = "-fish\nvim notes.md\nssh somewhere limactl shell nope\n"
+        self.assertIsNone(self.m._project_from_ps_args(ps))
+
+    def test_empty_output(self):
+        self.assertIsNone(self.m._project_from_ps_args(""))
+
+
 class TestPrimaryRepoWorkdir(_MachineTestCase):
     def test_returns_guest_printed_path(self):
         with mock.patch.object(

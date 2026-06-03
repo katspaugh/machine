@@ -556,6 +556,25 @@ def _primary_repo_workdir(name: str) -> str | None:
     return out.stdout.strip() or None
 
 
+def _project_from_ps_args(ps_output: str) -> str | None:
+    """Extract the VM name from a `limactl shell ...` argv line in
+    `ps -o args=` output. Matches the basename of argv[0] (ps may report
+    a full path), skips flags, returns the first positional argument."""
+    for line in ps_output.splitlines():
+        words = line.split()
+        if len(words) < 3 or Path(words[0]).name != "limactl" or words[1] != "shell":
+            continue
+        rest = words[2:]
+        i = 0
+        while i < len(rest):
+            w = rest[i]
+            if w.startswith("--"):
+                i += 1 if "=" in w else 2  # --flag=value vs --flag value
+                continue
+            return w
+    return None
+
+
 def cmd_ssh(args: argparse.Namespace) -> int:
     name = args.project
     workdir = _primary_repo_workdir(name)
