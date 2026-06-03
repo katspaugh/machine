@@ -11,7 +11,7 @@
 #   3. Downloads the tagged tarball from GitHub, computes its sha256.
 #   4. Rewrites url + sha256 in this repo's Formula/machine.rb, commits, pushes main.
 #   5. Clones katspaugh/homebrew-machine, mirrors the formula, commits, pushes.
-#   6. Creates a GitHub Release with auto-generated notes.
+#   6. Creates a GitHub Release with notes from the CHANGELOG Unreleased section.
 
 set -euo pipefail
 
@@ -31,6 +31,8 @@ git rev-parse --verify "$TAG" >/dev/null 2>&1 \
   && { echo "tag $TAG already exists locally" >&2; exit 1; }
 command -v gh >/dev/null \
   || { echo "gh not found (brew install gh)" >&2; exit 1; }
+command -v python3 >/dev/null \
+  || { echo "python3 not found" >&2; exit 1; }
 gh auth status >/dev/null 2>&1 \
   || { echo "gh not authenticated (gh auth login)" >&2; exit 1; }
 
@@ -42,7 +44,7 @@ bash tests/unit.sh
 # CHANGELOG: require a non-empty Unreleased section; it becomes the
 # release notes and is promoted to a versioned heading below.
 NOTES_FILE="${TMPDIR:-/tmp}/machine-release-notes.$$"
-trap 'rm -f "$NOTES_FILE"' EXIT
+trap 'rm -f "${NOTES_FILE:-}"; rm -rf "${TAP_DIR:-}"' EXIT
 awk '/^## \[Unreleased\]/{f=1; next} /^## \[/{f=0} f' CHANGELOG.md > "$NOTES_FILE"
 if ! grep -q '[^[:space:]]' "$NOTES_FILE"; then
   echo "CHANGELOG.md has no entries under '## [Unreleased]' — write the release notes first" >&2
@@ -57,7 +59,8 @@ version = sys.argv[1]
 p = pathlib.Path("CHANGELOG.md")
 text = p.read_text()
 today = datetime.date.today().isoformat()
-assert "## [Unreleased]" in text
+if "## [Unreleased]" not in text:
+    sys.exit("CHANGELOG.md: '## [Unreleased]' heading not found")
 text = text.replace(
     "## [Unreleased]",
     f"## [Unreleased]\n\n## [{version}] — {today}", 1)
@@ -115,7 +118,6 @@ git push origin HEAD
 
 # 5. Mirror into the tap
 echo "==> updating tap $TAP_REMOTE"
-trap 'rm -rf "$TAP_DIR" "$NOTES_FILE"' EXIT
 git clone --depth 1 "$TAP_REMOTE" "$TAP_DIR"
 cp Formula/machine.rb "$TAP_DIR/Formula/machine.rb"
 (
