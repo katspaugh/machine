@@ -76,16 +76,14 @@ def load_dotenv() -> None:
 
 
 def configure_ssh_agent() -> None:
-    """If MACHINE_USE_1PASSWORD=1, point SSH_AUTH_SOCK at 1Password's agent."""
-    if os.environ.get("MACHINE_USE_1PASSWORD") != "1":
-        return
+    """Pick the SSH agent to forward into the VM. If the 1Password agent
+    socket exists (path from ONEPASS_SOCK, default the well-known app
+    location), prefer it; otherwise leave SSH_AUTH_SOCK alone so the macOS
+    Keychain agent is forwarded. ONEPASS_SOCK pointed at a non-socket path
+    (e.g. /dev/null) forces the Keychain fallback."""
     sock = Path(os.environ.get("ONEPASS_SOCK") or ONEPASS_SOCK_DEFAULT)
-    if not sock.is_socket():
-        die(
-            f"MACHINE_USE_1PASSWORD=1 but 1Password agent socket not found at {sock}\n"
-            f"  Open 1Password → Settings → Developer → 'Use the SSH agent'."
-        )
-    os.environ["SSH_AUTH_SOCK"] = str(sock)
+    if sock.is_socket():
+        os.environ["SSH_AUTH_SOCK"] = str(sock)
 
 
 # --- Projects TOML helpers -------------------------------------------------

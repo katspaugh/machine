@@ -1,10 +1,12 @@
 """Unit tests for the host-side helpers in bin/machine. No VM required."""
 import importlib.util
 import os
+import socket
 import tempfile
 import unittest
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -95,6 +97,36 @@ class TestHelpers(unittest.TestCase):
     def test_render_template_rejects_unknown_profile(self):
         with self.assertRaises(SystemExit):
             self.m.render_template("wallet", ["nope"], golden=False)
+
+    def test_configure_ssh_agent_uses_1password_socket_when_present(self):
+        sock_path = Path(self.tmp.name) / "agent.sock"
+        srv = socket.socket(socket.AF_UNIX)
+        self.addCleanup(srv.close)
+        srv.bind(str(sock_path))
+        with mock.patch.dict(os.environ, {
+            "ONEPASS_SOCK": str(sock_path),
+            "SSH_AUTH_SOCK": "/orig/agent.sock",
+        }):
+            self.m.configure_ssh_agent()
+            self.assertEqual(os.environ["SSH_AUTH_SOCK"], str(sock_path))
+
+    def test_configure_ssh_agent_keeps_default_when_socket_missing(self):
+        with mock.patch.dict(os.environ, {
+            "ONEPASS_SOCK": str(Path(self.tmp.name) / "nope.sock"),
+            "SSH_AUTH_SOCK": "/orig/agent.sock",
+        }):
+            self.m.configure_ssh_agent()
+            self.assertEqual(os.environ["SSH_AUTH_SOCK"], "/orig/agent.sock")
+
+    def test_configure_ssh_agent_ignores_non_socket_path(self):
+        not_a_socket = Path(self.tmp.name) / "plain-file"
+        not_a_socket.write_text("")
+        with mock.patch.dict(os.environ, {
+            "ONEPASS_SOCK": str(not_a_socket),
+            "SSH_AUTH_SOCK": "/orig/agent.sock",
+        }):
+            self.m.configure_ssh_agent()
+            self.assertEqual(os.environ["SSH_AUTH_SOCK"], "/orig/agent.sock")
 
 
 if __name__ == "__main__":
