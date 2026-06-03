@@ -347,3 +347,8 @@ No host filesystem is mounted. Each project gets its own VM, so a compromise of 
 | `PROJECTS_FILE` | `<repo>/projects.toml` in dev mode; `~/.config/machine/projects.toml` under Homebrew |
 | `MACHINE_CONFIG_DIR` | config-directory location (`~/.config/machine` by default) |
 | `MACHINE_STATE_DIR` | generated-state location (`<repo>/.build` in dev mode; `~/.local/state/machine` under Homebrew) |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) — the profile-authoring walkthrough
+lives there. Bug reports should include `machine doctor` output.
