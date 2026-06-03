@@ -1,0 +1,72 @@
+name: Smoke
+
+# Boots a real Lima VM on a macOS runner, provisions every profile, and runs
+# the full in-VM smoke suite (tests/run-all.sh). Heavy (~30-60 min), so it
+# runs on pushes to main and nightly — not on PRs. `workflow_dispatch` is for
+# manual runs while iterating.
+#
+# No untrusted inputs are interpolated into `run:` steps; all values are
+# workflow-literal or come from checked-in files.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *" # nightly 03:17 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke-macos:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lima
+        run: |
+          brew install lima
+          limactl --version
+          python3 --version
+
+      - name: Throwaway SSH identity (agent forwarding + git signing)
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -N "" -C "ci@runmachine.dev" -f ~/.ssh/ci_ed25519
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/ci_ed25519
+          {
+            echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
+            echo "SSH_AGENT_PID=$SSH_AGENT_PID"
+            echo "GIT_NAME=machine CI"
+            echo "GIT_EMAIL=ci@runmachine.dev"
+            echo "GIT_SIGNING_KEY=$(cat ~/.ssh/ci_ed25519.pub)"
+            echo "PROJECTS_FILE=$GITHUB_WORKSPACE/ci-projects.toml"
+          } >> "$GITHUB_ENV"
+
+      - name: Write CI projects.toml (all profiles, no repos)
+        run: |
+          cat > ci-projects.toml <<'EOF'
+          [ci]
+          profiles = ["cypress", "playwright", "supabase-fly", "modern"]
+          repos = []
+          EOF
+
+      - name: machine up
+        run: ./bin/machine up ci
+
+      - name: Smoke suite
+        run: bash tests/run-all.sh ci
+
+      - name: Provision log on failure
+        if: failure()
+        run: limactl shell ci -- sudo tail -200 /var/log/cloud-init-output.log || true
+
+      - name: Destroy VM
+        if: always()
+        run: ./bin/machine destroy -y ci || true
