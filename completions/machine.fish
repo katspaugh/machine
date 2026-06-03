@@ -12,11 +12,11 @@ for n, v in cfg.items():
     end
 end
 
-set -l cmds up down ssh claude run list destroy bake secrets init doctor
+set -l cmds up down ssh claude tab run list destroy bake secrets init doctor
 
 complete -c machine -n "not __fish_seen_subcommand_from $cmds" -a "$cmds"
 
-for c in up down ssh claude run secrets destroy
+for c in up down ssh claude tab run secrets destroy
     complete -c machine -n "__fish_seen_subcommand_from $c" -a '(__machine_projects)'
 end
 
