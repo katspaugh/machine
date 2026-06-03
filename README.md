@@ -157,6 +157,7 @@ automatically — there is no host `~/.ssh/config` block for `machine` to manage
 | `machine down <p>` | Stop the VM (preserves disk). Re-provision in place with `machine up <p>` afterwards. |
 | `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). |
 | `machine claude <p>` | Launch `claude` in a tmux session in the VM (cwd = `~/code/<primary-repo>`). Detach with `ctrl-b d` — claude keeps running; re-run to reattach. Exiting `claude` ends the session. |
+| `machine tab [p]` | macOS: open a new Terminal.app tab connected to the same machine as the current tab (detected from the tab's `limactl shell` process). Pass a project to skip detection. Bind to a hotkey via Shortcuts.app ([below](#hotkey-new-tab-on-the-same-machine-macos)). |
 | `machine run <p> <cmd>...` | Non-interactive command in the VM. |
 | `machine list` | List VMs (`limactl list`) plus configured-but-not-yet-created projects. |
 | `machine destroy <p>` | Delete the VM. `-y` skips confirmation. |
@@ -164,6 +165,34 @@ automatically — there is no host `~/.ssh/config` block for `machine` to manage
 | `machine secrets <p> [--repo <r>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)). `--clear` wipes them. |
 | `machine init` | Write `projects.toml` to `~/.config/machine/` from the bundled example. |
 | `machine doctor` | Preflight host checks: lima, SSH agent keys, git identity, signing-key resolution, `op` CLI note, `projects.toml` presence. |
+
+## Hotkey: new tab on the same machine (macOS)
+
+`machine tab` looks at the frontmost Terminal.app tab, finds the
+`limactl shell <project>` process on its tty, and opens a new tab
+already connected to that machine. It works in tabs opened by
+`machine ssh` and `machine claude` alike, and never guesses from
+titles or state files — the running process is the source of truth.
+
+To bind it to a hotkey:
+
+1. Open **Shortcuts.app** → new shortcut → add a single **Run Shell
+   Script** action with:
+
+   ```sh
+   /opt/homebrew/bin/machine tab
+   ```
+
+   (Use the path from `which machine` if you installed differently.)
+2. In the shortcut's details pane (ⓘ), add a **keyboard shortcut**,
+   e.g. ⌃⌘T. Shortcuts hotkeys are global — pick one that doesn't
+   collide with other apps.
+
+The first run triggers two one-time macOS permission prompts for the
+invoking app (Shortcuts, or Terminal when run by hand): Automation
+control of **Terminal** (to read the tab's tty and run the command)
+and **System Events** (to send ⌘T — Terminal's AppleScript dictionary
+has no "new tab" command). Approve both.
 
 ## Repository layout
 

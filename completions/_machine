@@ -18,6 +18,7 @@ _machine() {
     'down:Stop the VM'
     'ssh:Open an interactive shell'
     'claude:Open a shell and launch claude'
+    'tab:Open a new Terminal tab on the same machine'
     'run:Run a non-interactive command'
     'list:List VMs'
     'destroy:Delete the VM'
@@ -31,7 +32,7 @@ _machine() {
     return
   fi
   case $words[2] in
-    up|down|ssh|claude|run|secrets|destroy)
+    up|down|ssh|claude|tab|run|secrets|destroy)
       compadd -- $(_machine_projects) ;;
     bake) compadd -- --force ;;
   esac

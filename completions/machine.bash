@@ -13,13 +13,13 @@ for n, v in cfg.items():
 
 _machine() {
   local cur=${COMP_WORDS[COMP_CWORD]}
-  local cmds="up down ssh claude run list destroy bake secrets init doctor"
+  local cmds="up down ssh claude tab run list destroy bake secrets init doctor"
   if [ "$COMP_CWORD" -eq 1 ]; then
     COMPREPLY=($(compgen -W "$cmds" -- "$cur"))
     return
   fi
   case "${COMP_WORDS[1]}" in
-    up|down|ssh|claude|run|secrets|destroy)
+    up|down|ssh|claude|tab|run|secrets|destroy)
       COMPREPLY=($(compgen -W "$(_machine_projects)" -- "$cur")) ;;
     bake)
       COMPREPLY=($(compgen -W "--force" -- "$cur")) ;;
