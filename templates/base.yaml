@@ -100,6 +100,13 @@ provision:
     [tag]
       gpgsign = true
 
+    [core]
+      pager = delta
+    [interactive]
+      diffFilter = delta --color-only
+    [delta]
+      navigate = true
+
     [init]
       defaultBranch = main
     [pull]

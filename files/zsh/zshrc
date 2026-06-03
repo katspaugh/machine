@@ -48,5 +48,13 @@ alias gl='git log --oneline --graph --decorate'
 # unless the user has installed something else there.
 command -v fdfind >/dev/null && ! command -v fd >/dev/null && alias fd='fdfind'
 
+# bat installs as `batcat` on Debian/Ubuntu (name clash with bacula). Same
+# pattern as fd; then use it as a nicer cat.
+command -v batcat >/dev/null && ! command -v bat >/dev/null && alias bat='batcat'
+(( $+commands[bat] || $+aliases[bat] )) && alias cat='bat --paging=never'
+
+# --- fzf (keybindings: Ctrl-R history, Ctrl-T files, Alt-C cd) ---------------
+command -v fzf >/dev/null && source <(fzf --zsh)
+
 # --- direnv -----------------------------------------------------------------
 command -v direnv >/dev/null && eval "$(direnv hook zsh)"

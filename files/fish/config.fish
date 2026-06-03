@@ -27,4 +27,18 @@ if status is-interactive
     if command -q fdfind; and not command -q fd
         alias fd=fdfind
     end
+
+    # bat ships as `batcat` on Debian/Ubuntu (name clash with bacula). Same
+    # pattern as fd; then use it as a nicer cat.
+    if command -q batcat; and not command -q bat
+        alias bat=batcat
+    end
+    if functions -q bat; or command -q bat
+        alias cat='bat --paging=never'
+    end
+
+    # fzf keybindings: Ctrl-R history, Ctrl-T files, Alt-C cd.
+    if command -q fzf
+        fzf --fish | source
+    end
 end
