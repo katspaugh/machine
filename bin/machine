@@ -604,6 +604,54 @@ def cmd_claude(args: argparse.Namespace) -> int:
     os.execvp("limactl", cmd)
 
 
+def _front_tab_tty() -> str:
+    """tty of the selected tab of Terminal.app's front window, e.g. /dev/ttys003."""
+    out = subprocess.run(
+        ["osascript", "-e",
+         'tell application "Terminal" to get tty of selected tab of front window'],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        die("could not read the front Terminal tab "
+            f"(is Terminal.app running?): {out.stderr.strip()}")
+    return out.stdout.strip()
+
+
+def cmd_tab(args: argparse.Namespace) -> int:
+    if sys.platform != "darwin":
+        die("machine tab drives Terminal.app and requires macOS")
+    name = args.project
+    if not name:
+        tty = _front_tab_tty().removeprefix("/dev/")
+        ps = subprocess.run(["ps", "-t", tty, "-o", "args="],
+                            capture_output=True, text=True)
+        name = _project_from_ps_args(ps.stdout)
+        if not name:
+            die("no machine session in this tab — run 'machine ssh <project>' "
+                "first, or pass a project: machine tab <project>")
+    # Absolute path so the new tab's login shell needs no PATH setup
+    # (works for both brew installs and dev clones).
+    machine_bin = str(Path(sys.argv[0]).resolve())
+    cmd = f"{shlex.quote(machine_bin)} ssh {shlex.quote(name)}"
+    # Escape for embedding in an AppleScript double-quoted string.
+    as_cmd = cmd.replace("\\", "\\\\").replace('"', '\\"')
+    # Terminal.app's AppleScript dictionary has no "make new tab"; send ⌘T
+    # via System Events (first run prompts for Automation permission),
+    # wait for the tab to exist, then run the command in it.
+    script = (
+        'tell application "Terminal" to activate\n'
+        'tell application "System Events" to keystroke "t" using command down\n'
+        "delay 0.3\n"
+        f'tell application "Terminal" to do script "{as_cmd}" '
+        "in selected tab of front window"
+    )
+    out = subprocess.run(["osascript", "-e", script],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        die(f"failed to open a new Terminal tab: {out.stderr.strip()}")
+    return 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     if not args.argv:
         die("usage: machine run <project> <cmd>...")

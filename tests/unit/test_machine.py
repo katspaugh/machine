@@ -398,5 +398,64 @@ class TestSyncOneEnv(_MachineTestCase):
         self.assertEqual(push.args[0][:3], ["limactl", "shell", "blog"])
 
 
+class TestCmdTab(_MachineTestCase):
+    """cmd_tab is macOS-only; patch sys.platform and subprocess.run."""
+
+    def _args(self, project=None):
+        return argparse.Namespace(project=project)
+
+    def test_rejects_non_macos(self):
+        with mock.patch.object(self.m.sys, "platform", "linux"):
+            with self.assertRaises(SystemExit):
+                self.m.cmd_tab(self._args("blog"))
+
+    def test_explicit_project_skips_detection(self):
+        with mock.patch.object(self.m.sys, "platform", "darwin"), \
+             mock.patch.object(self.m.subprocess, "run",
+                               return_value=proc(0)) as run_:
+            rc = self.m.cmd_tab(self._args("blog"))
+        self.assertEqual(rc, 0)
+        # one call: the osascript that opens the tab; no tty/ps calls
+        self.assertEqual(run_.call_count, 1)
+        argv = run_.call_args[0][0]
+        self.assertEqual(argv[:2], ["osascript", "-e"])
+        self.assertIn("ssh blog", argv[2])
+        self.assertIn('keystroke "t" using command down', argv[2])
+
+    def test_detection_path(self):
+        ps_out = "/opt/homebrew/bin/limactl shell --workdir /home/x/code/a wallet\n"
+        calls = [
+            proc(0, stdout="/dev/ttys005\n"),   # osascript: front tab tty
+            proc(0, stdout=ps_out),              # ps -t ttys005
+            proc(0),                             # osascript: open tab
+        ]
+        with mock.patch.object(self.m.sys, "platform", "darwin"), \
+             mock.patch.object(self.m.subprocess, "run",
+                               side_effect=calls) as run_:
+            rc = self.m.cmd_tab(self._args(None))
+        self.assertEqual(rc, 0)
+        ps_argv = run_.call_args_list[1][0][0]
+        self.assertEqual(ps_argv, ["ps", "-t", "ttys005", "-o", "args="])
+        open_argv = run_.call_args_list[2][0][0]
+        self.assertIn("ssh wallet", open_argv[2])
+
+    def test_no_machine_session_dies(self):
+        calls = [
+            proc(0, stdout="/dev/ttys005\n"),
+            proc(0, stdout="-fish\nvim notes.md\n"),
+        ]
+        with mock.patch.object(self.m.sys, "platform", "darwin"), \
+             mock.patch.object(self.m.subprocess, "run", side_effect=calls):
+            with self.assertRaises(SystemExit):
+                self.m.cmd_tab(self._args(None))
+
+    def test_terminal_not_scriptable_dies(self):
+        with mock.patch.object(self.m.sys, "platform", "darwin"), \
+             mock.patch.object(self.m.subprocess, "run",
+                               return_value=proc(1, stderr="not allowed")):
+            with self.assertRaises(SystemExit):
+                self.m.cmd_tab(self._args(None))
+
+
 if __name__ == "__main__":
     unittest.main()
