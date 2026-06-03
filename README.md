@@ -156,7 +156,7 @@ automatically — there is no host `~/.ssh/config` block for `machine` to manage
 | `machine up [p]` | Create if needed, start, provision, clone the repo(s). Idempotent — re-running re-applies the provision scripts. No name → base VM `default`; unknown names offer an ad-hoc base VM. |
 | `machine down <p>` | Stop the VM (preserves disk). Re-provision in place with `machine up <p>` afterwards. |
 | `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). |
-| `machine claude <p>` | Open an SSH session and launch `claude` straight away (cwd = `~/code/<primary-repo>`). Exiting `claude` ends the session. |
+| `machine claude <p>` | Launch `claude` in a tmux session in the VM (cwd = `~/code/<primary-repo>`). Detach with `ctrl-b d` — claude keeps running; re-run to reattach. Exiting `claude` ends the session. |
 | `machine run <p> <cmd>...` | Non-interactive command in the VM. |
 | `machine list` | List VMs (`limactl list`) plus configured-but-not-yet-created projects. |
 | `machine destroy <p>` | Delete the VM. `-y` skips confirmation. |

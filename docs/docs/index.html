@@ -168,7 +168,7 @@
               <tr><td>machine up [p]</td><td class="desc">Create if needed, start, provision (base + profiles), clone the repo(s). Idempotent. No name → base VM <code>default</code>; unknown names offer an ad-hoc base VM.</td></tr>
               <tr><td>machine down &lt;p&gt;</td><td class="desc">Stop the VM (preserves disk). Re-provision in place with <code>machine up</code> afterwards.</td></tr>
               <tr><td>machine ssh &lt;p&gt;</td><td class="desc">Interactive shell, cwd = <code>~/code/&lt;primary-repo&gt;</code>.</td></tr>
-              <tr><td>machine claude &lt;p&gt;</td><td class="desc">Open an SSH session and launch <code>claude</code> straight away, cwd = <code>~/code/&lt;primary-repo&gt;</code>.</td></tr>
+              <tr><td>machine claude &lt;p&gt;</td><td class="desc">Launch <code>claude</code> in a tmux session, cwd = <code>~/code/&lt;primary-repo&gt;</code>. Detach with <code>ctrl-b d</code> — claude keeps running; re-run to reattach.</td></tr>
               <tr><td>machine run &lt;p&gt; &lt;cmd&gt;…</td><td class="desc">Non-interactive command in the VM.</td></tr>
               <tr><td>machine list</td><td class="desc">List VMs (<code>limactl list</code>) plus configured-but-not-yet-created projects.</td></tr>
               <tr><td>machine destroy &lt;p&gt;</td><td class="desc">Delete the VM. <code>-y</code> skips confirmation.</td></tr>

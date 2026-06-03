@@ -816,7 +816,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("down", help="Stop the VM").add_argument("project", nargs="?", default="default")
     sub.add_parser("ssh", help="Open an interactive shell (cwd = ~/code/<primary-repo>)").add_argument("project", nargs="?", default="default")
-    sub.add_parser("claude", help="Open an SSH session and launch `claude`").add_argument("project", nargs="?", default="default")
+    sub.add_parser("claude", help="Launch `claude` in a tmux session (re-run to reattach)").add_argument("project", nargs="?", default="default")
 
     run_p = sub.add_parser("run", help="Run a non-interactive command in the VM")
     run_p.add_argument("project")
