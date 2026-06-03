@@ -303,3 +303,20 @@
   font-size: var(--t-mono-s);
   color: var(--dim);
 }
+
+/* comparison tables (guide pages) — row-header layout, even columns */
+.manual-content table.compare { table-layout: fixed; }
+.manual-content table.compare thead th { vertical-align: bottom; }
+.manual-content table.compare tbody th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--t-mono-s);
+  font-weight: 500;
+  color: var(--cyan);
+  vertical-align: top;
+  padding: 12px var(--s-4);
+  border-bottom: 1px solid var(--border);
+}
+.manual-content table.compare tbody tr:last-child th { border-bottom: 0; }
+.manual-content table.compare tbody td { color: var(--muted); }
+.manual-content table.compare strong { color: var(--green); font-weight: 600; }

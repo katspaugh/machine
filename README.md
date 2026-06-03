@@ -11,6 +11,15 @@ A reproducible Lima VM per GitHub project, with Docker, Node, agent CLIs (Claude
 
 Claude Code comes pre-installed with the official marketplace and these plugins enabled: `frontend-design`, `superpowers`, `github`, `typescript-lsp`, `security-guidance`, `commit-commands`, `chrome-devtools-mcp`, `supabase`. Permission `defaultMode` is set to `auto`.
 
+## Why
+
+AI coding agents are most useful with full autonomy — and full autonomy on
+your host means access to your keys, your other projects, and everything
+`npm install` drags in. `machine` gives each project a disposable VM where
+"yes to everything" is a safe answer: no host filesystem mount, keys stay on
+the host behind a forwarded agent, secrets live in tmpfs.
+Read the guide: [Sandboxing Claude Code](https://runmachine.dev/sandboxing-claude-code/).
+
 ## Install
 
 ```sh

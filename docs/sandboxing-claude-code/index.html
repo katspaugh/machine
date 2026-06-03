@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sandboxing Claude Code — machine</title>
+  <meta name="description" content="Run Claude Code and other AI coding agents with full autonomy inside an isolated VM — no host filesystem, no cross-project bleed. An honest comparison of the sandboxing options." />
+
+  <link rel="canonical" href="https://runmachine.dev/sandboxing-claude-code/" />
+  <meta property="og:url" content="https://runmachine.dev/sandboxing-claude-code/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="Sandboxing Claude Code — machine" />
+  <meta property="og:description" content="Run AI coding agents with full autonomy inside an isolated VM — no host filesystem, no cross-project bleed." />
+  <meta property="og:image" content="https://runmachine.dev/assets/banner.svg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://runmachine.dev/assets/banner.svg" />
+
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="../styles/tokens.css" />
+  <link rel="stylesheet" href="../styles/components.css" />
+  <link rel="stylesheet" href="../styles/manual.css" />
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<header class="nav is-stuck" id="nav">
+  <div class="container nav-inner">
+    <a href="../" class="nav-brand" aria-label="machine home">
+      <span class="mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+      <span class="wordmark">machine</span>
+    </a>
+    <nav class="nav-links">
+      <a href="../docs/">The machinist's manual</a>
+      <a class="nav-cta" href="https://github.com/katspaugh/machine" rel="noreferrer">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main class="container manual-wrap">
+
+  <!-- header -->
+  <div class="manual-head">
+    <p class="eyebrow">// guide</p>
+    <h1>Sandboxing Claude Code (and every other coding agent).</h1>
+    <p class="lede">
+      An agent that can run shell commands is only as safe as the machine you give it.
+      This guide covers what an unsandboxed agent can actually touch, how
+      <code>machine</code> isolates it in a per-project VM, and an honest comparison
+      with the other options.
+    </p>
+  </div>
+
+  <div class="manual-layout">
+
+    <!-- TOC -->
+    <aside class="manual-toc" aria-label="Table of contents">
+      <div class="toc-label">// contents</div>
+      <ol>
+        <li><a href="#problem">The problem</a></li>
+        <li><a href="#isolation">The isolation model</a></li>
+        <li><a href="#quickstart">Three commands</a></li>
+        <li><a href="#comparison">Honest comparison</a></li>
+        <li><a href="#faq">FAQ</a></li>
+      </ol>
+    </aside>
+
+    <!-- content -->
+    <article class="manual-content">
+
+      <section id="problem">
+        <h2><span class="num">01</span>The problem</h2>
+        <p>
+          Coding agents are most useful when they can act: run the tests, install the
+          dependency, fix the config, retry. Claude Code's permission prompts exist
+          because every one of those actions runs on <em>your</em> machine — and the
+          moment you get tired of approving each command and reach for
+          <code>--dangerously-skip-permissions</code>, the agent inherits everything
+          your user account can do:
+        </p>
+        <ul>
+          <li>Read your SSH private keys, browser sessions, cloud credentials, and every other project's source and <code>.env</code> files.</li>
+          <li>Execute whatever a compromised or hallucinated <code>npm install</code> postinstall script wants — supply-chain attacks don't ask permission either.</li>
+          <li>Mutate global state: dotfiles, keychains, crontabs, other repos.</li>
+        </ul>
+        <p>
+          The fix isn't more prompts — it's giving the agent a machine where
+          <em>yes to everything</em> is an acceptable answer.
+        </p>
+      </section>
+
+      <section id="isolation">
+        <h2><span class="num">02</span>The isolation model</h2>
+        <p>
+          <code>machine</code> gives each project its own <a href="https://lima-vm.io/">Lima</a> VM
+          with Docker, Node, the agent CLIs (Claude Code, Codex), GitHub CLI, and signed git
+          already provisioned. The boundary is a VM, not a container — a different kernel,
+          not a namespace.
+        </p>
+        <ul>
+          <li><strong>No host filesystem is mounted.</strong> There is no path from the VM to your home directory. The smoke suite asserts this on every CI run.</li>
+          <li><strong>One VM per project.</strong> A compromised dependency in one project cannot read another project's code or secrets — they're separate machines.</li>
+          <li><strong>Keys stay on the host.</strong> Git auth and commit signing use a forwarded SSH agent: the VM can request signatures while it runs, but can never read the private key.</li>
+          <li><strong>Secrets are tmpfs-only.</strong> <code>machine secrets</code> renders 1Password Environments into VM tmpfs — never to disk, gone on reboot. A fully compromised VM sees only the secrets a repo explicitly rendered, not your vault.</li>
+        </ul>
+        <p>
+          Inside that boundary, the agent runs with <code>defaultMode: auto</code> —
+          full autonomy, because the blast radius is one disposable VM.
+          <code>machine claude</code> even keeps it running in tmux after you close your laptop.
+          The full model is in the <a href="../docs/#threat-model">threat model</a>.
+        </p>
+      </section>
+
+      <section id="quickstart">
+        <h2><span class="num">03</span>Three commands</h2>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>brew install katspaugh/machine/machine
+<span class="prompt">$ </span>machine up                 <span class="cmt"># zero-config sandbox VM, ~/code inside</span>
+<span class="prompt">$ </span>machine claude             <span class="cmt"># Claude Code in a tmux session, in the VM</span></code></pre>
+        <p>
+          Add repos and tool profiles per project in <code>projects.toml</code> when you
+          want more than a scratch VM — see the <a href="../docs/#setup">manual</a>.
+          Nix users: <code>nix profile install github:katspaugh/machine</code>.
+        </p>
+      </section>
+
+      <section id="comparison">
+        <h2><span class="num">04</span>Honest comparison</h2>
+        <p>Where the alternatives genuinely win, the table says so.</p>
+        <div class="tbl">
+          <table class="compare">
+            <thead>
+              <tr><th></th><th>Bare host + permission prompts</th><th>Docker / devcontainers</th><th>machine (Lima VM)</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th>Isolation boundary</th>
+                <td>None — agent shares your account</td>
+                <td>Kernel namespaces; host kernel shared, escapes are rare but real; project dirs are usually bind-mounted in</td>
+                <td>Hardware-virtualized VM, separate kernel, no host mounts</td>
+              </tr>
+              <tr>
+                <th>Agent autonomy you can grant</th>
+                <td>Low — every skipped prompt is host exposure</td>
+                <td>High inside the container, but the mounted workspace is still your working copy</td>
+                <td>Full (<code>auto</code> mode) — worst case is a throwaway VM</td>
+              </tr>
+              <tr>
+                <th>Cross-project isolation</th>
+                <td>None</td>
+                <td>Only if you never share volumes or images between projects</td>
+                <td>Default — one VM per project</td>
+              </tr>
+              <tr>
+                <th>Docker workloads inside</th>
+                <td>Yes (host Docker)</td>
+                <td>Docker-in-Docker or socket mounting — the latter pierces the sandbox</td>
+                <td>Yes — real dockerd inside the VM</td>
+              </tr>
+              <tr>
+                <th>Cross-platform &amp; team-shareable config</th>
+                <td>—</td>
+                <td><strong>Wins:</strong> devcontainer.json is portable, IDE-native, works on Linux/Windows/Codespaces</td>
+                <td>macOS hosts only; config is a TOML you share, but VMs are local</td>
+              </tr>
+              <tr>
+                <th>Weight</th>
+                <td>None</td>
+                <td><strong>Wins:</strong> containers are lighter and faster to start</td>
+                <td>~GBs of disk per VM, seconds-to-minutes to boot (cached base disk)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted">
+          If you need Linux/Windows hosts or team-distributed environments, use
+          devcontainers. If you want the strongest practical boundary for autonomous
+          agents on a Mac, use a VM.
+        </p>
+      </section>
+
+      <section id="faq">
+        <h2><span class="num">05</span>FAQ</h2>
+        <h3>Does the agent get internet access?</h3>
+        <p>Yes — the VM has normal outbound networking (it needs npm, apt, GitHub). The boundary protects your host and other projects, not the network.</p>
+        <h3>How do I see the app the agent is building?</h3>
+        <p>Lima auto-forwards listening guest ports to <code>127.0.0.1</code> on the host. Your browser just works.</p>
+        <h3>What if the agent wrecks the VM?</h3>
+        <p><code>machine destroy &amp;&amp; machine up</code> — a fresh, fully provisioned VM in about a minute from the cached base disk.</p>
+        <h3>Is my code safe from the agent?</h3>
+        <p>The code in the VM is the agent's working copy — push protection comes from review and the forwarded-agent model (it can't approve its own GitHub credentials beyond what the agent socket allows while you're connected).</p>
+      </section>
+
+      <div class="manual-end">
+        <span class="meta">// machine · sandboxed AI coding agents · katspaugh/machine</span>
+        <a class="btn btn-secondary" href="../">← Back to runmachine.dev</a>
+      </div>
+
+    </article>
+  </div>
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="container">
+    <div class="foot-grid">
+      <div>
+        <div class="nav-brand" style="margin-bottom: var(--s-4)">
+          <span class="mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+          <span class="wordmark">machine</span>
+        </div>
+        <p class="foot-tag">Built by people who got tired of cleaning up after their machines.</p>
+      </div>
+      <div class="foot-col">
+        <h5>// docs</h5>
+        <ul>
+          <li><a href="../docs/">The machinist's manual</a></li>
+          <li><a href="../docs/#quickstart">Quickstart</a></li>
+          <li><a href="../docs/#threat-model">Threat model</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h5>// project</h5>
+        <ul>
+          <li><a href="https://github.com/katspaugh/machine">GitHub</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="https://github.com/katspaugh/machine/blob/main/CONTRIBUTING.md">Contributing</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="foot-bottom">
+      <span>// no warranty. no telemetry. no machine-learning angle.</span>
+      <span>2026 · katspaugh/machine</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // TOC: highlight the current section as you scroll
+  (function () {
+    var links = Array.from(document.querySelectorAll('.manual-toc a'));
+    var byId = {};
+    links.forEach(function (a) {
+      var id = a.getAttribute('href').slice(1);
+      byId[id] = a;
+    });
+    var sections = Array.from(document.querySelectorAll('.manual-content section[id]'));
+    if (!('IntersectionObserver' in window) || !sections.length) return;
+
+    var current = null;
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          if (current) current.classList.remove('is-current');
+          var a = byId[e.target.id];
+          if (a) { a.classList.add('is-current'); current = a; }
+        }
+      });
+    }, { rootMargin: '-30% 0px -60% 0px', threshold: 0 });
+
+    sections.forEach(function (s) { io.observe(s); });
+  })();
+</script>
+
+</body>
+</html>
