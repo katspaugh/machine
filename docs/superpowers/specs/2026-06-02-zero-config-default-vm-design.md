@@ -31,8 +31,9 @@ Two behaviors:
 
 `load_projects()` returns `{}` when `PROJECTS_FILE` is missing, instead of
 dying. `get_project()` keeps its hard `die("project '<name>' not in ...")` —
-every caller except `cmd_up` still wants that error (notably `cmd_secrets`,
-where a project without repos is meaningless).
+the config-reading callers (`project_urls`, `project_profiles`) still surface
+that error for unknown names. `cmd_secrets` doesn't read the config at all; it
+operates on the VM name directly (see Error handling).
 
 ### 2. `cmd_up` resolution
 
@@ -98,8 +99,10 @@ needed; add `projects.toml` when you want repos/profiles"). Same change in
 
 - Invalid names are still rejected by `validate_name()` before anything else.
 - Declining the confirm prompt exits non-zero with `aborted`.
-- A missing config plus a *configured-looking* command (`machine secrets
-  <name>` for an unknown name) still errors via `get_project()`.
+- `machine secrets <name>` for an unknown name does not error on the config —
+  `cmd_secrets` works off the VM name directly. It runs against the named VM
+  and reports "no repos with `use op_env`" (or a Lima not-found error if the
+  VM doesn't exist), which is the right behavior in the zero-config world.
 
 ## Testing
 
