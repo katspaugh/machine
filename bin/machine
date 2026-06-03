@@ -171,9 +171,10 @@ def close_lima_ssh_master(vm: str) -> None:
     Lima's ssh.config sets `ControlMaster auto` + `ControlPersist yes`, so the
     first `limactl shell` spawns a mux process that subsequent shells reuse.
     Agent forwarding is fixed at the moment the master is created — if the
-    host's SSH_AUTH_SOCK changes between runs (e.g. toggling
-    MACHINE_USE_1PASSWORD), the mux keeps forwarding the *old* agent. Closing
-    the mux forces a fresh master that picks up the current SSH_AUTH_SOCK."""
+    host's SSH_AUTH_SOCK changes between runs (e.g. the 1Password agent
+    appearing or going away), the mux keeps forwarding the *old* agent.
+    Closing the mux forces a fresh master that picks up the current
+    SSH_AUTH_SOCK."""
     lima_vm_dir = Path.home() / ".lima" / vm
     sock = lima_vm_dir / "ssh.sock"
     cfg = lima_vm_dir / "ssh.config"
@@ -604,7 +605,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             check(f"Lima >= 2.0 ({ver_out or 'unknown'})", True)
     agent = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True)
     check("SSH agent has keys", agent.returncode == 0,
-          "ssh-add --apple-use-keychain ~/.ssh/id_ed25519 (or MACHINE_USE_1PASSWORD=1)")
+          "ssh-add --apple-use-keychain ~/.ssh/id_ed25519, "
+          "or enable 1Password's SSH agent")
     check("git user.name", bool(os.environ.get("GIT_NAME") or git_config("user.name")),
           "git config --global user.name 'Your Name'")
     check("git user.email", bool(os.environ.get("GIT_EMAIL") or git_config("user.email")),
