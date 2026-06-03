@@ -1,12 +1,16 @@
 """Unit tests for the host-side helpers in bin/machine. No VM required."""
+import argparse
+import contextlib
 import importlib.util
+import io
 import os
 import socket
+import subprocess
 import tempfile
 import unittest
-from unittest import mock
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -24,7 +28,14 @@ def load_machine(extra_env: dict[str, str] | None = None):
     return mod
 
 
-class TestHelpers(unittest.TestCase):
+def proc(rc: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
+    """A fake CompletedProcess for mocked run()/lima_shell() calls."""
+    return subprocess.CompletedProcess(args=[], returncode=rc, stdout=stdout, stderr=stderr)
+
+
+class _MachineTestCase(unittest.TestCase):
+    """Loads bin/machine fresh against a temp projects.toml."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         projects = Path(self.tmp.name) / "projects.toml"
@@ -48,6 +59,8 @@ class TestHelpers(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+
+class TestHelpers(_MachineTestCase):
     def test_repo_basename(self):
         self.assertEqual(self.m.repo_basename("git@github.com:me/blog.git"), "blog")
         self.assertEqual(self.m.repo_basename("https://github.com/me/x"), "x")
@@ -211,6 +224,149 @@ class TestZeroConfig(unittest.TestCase):
     def test_parser_run_still_requires_project(self):
         with self.assertRaises(SystemExit):
             self.m.build_parser().parse_args(["run"])
+
+
+class TestCloneWarnings(_MachineTestCase):
+    def test_clone_repo_returns_warning_on_deps_failure(self):
+        # 1st lima_shell: repo-present probe (rc 1 = absent)
+        # run(): git clone (ok)
+        # 2nd lima_shell: deps install (rc 1 = failed)
+        with mock.patch.object(self.m, "lima_shell",
+                               side_effect=[proc(1), proc(1)]) as sh, \
+             mock.patch.object(self.m, "run", return_value=proc(0)):
+            warning = self.m.clone_repo("blog", "git@github.com:me/blog.git")
+        self.assertEqual(warning, "deps install failed for blog — re-run inside the VM")
+        self.assertEqual(sh.call_count, 2)
+
+    def test_clone_repo_returns_none_on_success(self):
+        with mock.patch.object(self.m, "lima_shell",
+                               side_effect=[proc(1), proc(0)]), \
+             mock.patch.object(self.m, "run", return_value=proc(0)):
+            self.assertIsNone(self.m.clone_repo("blog", "git@github.com:me/blog.git"))
+
+    def test_clone_repo_returns_none_when_already_present(self):
+        with mock.patch.object(self.m, "lima_shell", return_value=proc(0)), \
+             mock.patch.object(self.m, "run") as run_mock:
+            self.assertIsNone(self.m.clone_repo("blog", "git@github.com:me/blog.git"))
+        run_mock.assert_not_called()
+
+    def _run_up(self, clone_result):
+        """Drive cmd_up with all I/O mocked; return captured stdout."""
+        out = io.StringIO()
+        with mock.patch.object(self.m, "close_lima_ssh_master"), \
+             mock.patch.object(self.m, "verify_repos_reachable"), \
+             mock.patch.object(self.m, "vm_exists", return_value=True), \
+             mock.patch.object(self.m, "run", return_value=proc(0)), \
+             mock.patch.object(self.m, "clone_repo", return_value=clone_result), \
+             contextlib.redirect_stdout(out):
+            rc = self.m.cmd_up(argparse.Namespace(project="blog"))
+        return rc, out.getvalue()
+
+    def test_cmd_up_prints_check_summary_without_warnings(self):
+        rc, out = self._run_up(None)
+        self.assertEqual(rc, 0)
+        self.assertIn("✓ blog ready", out)
+        self.assertNotIn("⚠", out)
+
+    def test_cmd_up_prints_warning_summary_and_exits_zero(self):
+        rc, out = self._run_up("deps install failed for blog — re-run inside the VM")
+        self.assertEqual(rc, 0)
+        self.assertIn("⚠ blog ready with warnings:", out)
+        self.assertIn("  deps install failed for blog — re-run inside the VM", out)
+        self.assertNotIn("✓", out)
+
+
+class TestPrimaryRepoWorkdir(_MachineTestCase):
+    def test_returns_guest_printed_path(self):
+        with mock.patch.object(
+            self.m, "lima_shell",
+            return_value=proc(0, stdout="/home/other.linux/code/blog\n"),
+        ) as sh:
+            self.assertEqual(self.m._primary_repo_workdir("blog"),
+                             "/home/other.linux/code/blog")
+        guest_cmd = sh.call_args.args[1]
+        self.assertIn('cd "$HOME/code/blog" && pwd', guest_cmd[-1])
+
+    def test_returns_none_when_repo_dir_missing(self):
+        with mock.patch.object(self.m, "lima_shell", return_value=proc(1)):
+            self.assertIsNone(self.m._primary_repo_workdir("blog"))
+
+    def test_does_not_read_host_user_env(self):
+        # Regression: used to KeyError on missing USER and to fabricate
+        # /home/$USER.linux/... from the host environment.
+        with mock.patch.dict(self.m.os.environ, {}, clear=True), \
+             mock.patch.object(
+                 self.m, "lima_shell",
+                 return_value=proc(0, stdout="/home/whoever/code/blog\n"),
+             ):
+            self.assertEqual(self.m._primary_repo_workdir("blog"),
+                             "/home/whoever/code/blog")
+
+    def test_returns_none_for_project_without_repos(self):
+        with mock.patch.object(self.m, "lima_shell") as sh:
+            self.assertIsNone(self.m._primary_repo_workdir("bare"))
+        sh.assert_not_called()
+
+
+class TestSecretsReachability(_MachineTestCase):
+    def _secrets_args(self, **kw):
+        defaults = dict(project="blog", repo=None, clear=False)
+        defaults.update(kw)
+        return argparse.Namespace(**defaults)
+
+    def test_cmd_secrets_dies_when_vm_unreachable(self):
+        with mock.patch.object(self.m.shutil, "which", return_value="/usr/bin/op"), \
+             mock.patch.object(self.m.subprocess, "run",
+                               return_value=proc(255, stderr="ssh: connect failed")), \
+             self.assertRaises(SystemExit), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            self.m.cmd_secrets(self._secrets_args())
+        self.assertIn("cannot reach VM 'blog'", err.getvalue())
+        self.assertIn("machine up blog", err.getvalue())
+
+    def test_cmd_secrets_keeps_nothing_found_message(self):
+        # Probe succeeds but finds no .envrc files (or ~/code doesn't exist
+        # yet — the guest script ends in `|| true`): not an error, exit 1
+        # with the existing hint.
+        with mock.patch.object(self.m.shutil, "which", return_value="/usr/bin/op"), \
+             mock.patch.object(self.m.subprocess, "run",
+                               return_value=proc(0, stdout="")), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            rc = self.m.cmd_secrets(self._secrets_args())
+        self.assertEqual(rc, 1)
+        self.assertIn("no repos with 'use op_env'", err.getvalue())
+
+    def test_cmd_secrets_clear_repo_dies_when_vm_unreachable(self):
+        with mock.patch.object(self.m.subprocess, "run",
+                               return_value=proc(255, stderr="ssh: connect failed")), \
+             self.assertRaises(SystemExit), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            self.m.cmd_secrets_clear(self._secrets_args(repo="blog", clear=True))
+        self.assertIn("cannot reach VM 'blog'", err.getvalue())
+
+
+class TestSyncOneEnv(_MachineTestCase):
+    def test_op_failure_returns_false_and_skips_vm(self):
+        with mock.patch.object(self.m.subprocess, "run",
+                               return_value=proc(1, stderr="not signed in")) as sp, \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            ok = self.m.sync_one_env("blog", "abc123", "blog")
+        self.assertFalse(ok)
+        self.assertEqual(sp.call_count, 1)  # op only; limactl never invoked
+        self.assertIn("not signed in", err.getvalue())
+
+    def test_success_pipes_secret_via_stdin_not_argv(self):
+        secret = "TOKEN=hunter2\n"
+        with mock.patch.object(self.m.subprocess, "run",
+                               side_effect=[proc(0, stdout=secret), proc(0)]) as sp, \
+             contextlib.redirect_stdout(io.StringIO()):
+            ok = self.m.sync_one_env("blog", "abc123", "blog")
+        self.assertTrue(ok)
+        push = sp.call_args_list[1]
+        self.assertEqual(push.kwargs.get("input"), secret)
+        self.assertNotIn(secret, " ".join(push.args[0]))
+        self.assertEqual(push.args[0][:3], ["limactl", "shell", "blog"])
 
 
 if __name__ == "__main__":
