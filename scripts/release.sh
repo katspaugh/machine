@@ -131,7 +131,7 @@ cp Formula/machine.rb "$TAP_DIR/Formula/machine.rb"
   fi
 )
 
-# 6. GitHub Release with auto notes
+# 6. GitHub Release with notes from the CHANGELOG Unreleased section
 echo "==> creating GitHub release $TAG"
 gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
 
