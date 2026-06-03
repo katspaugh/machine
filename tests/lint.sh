@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 scripts=()
 while IFS= read -r f; do
   scripts+=("$f")
-done < <(find bin provision tests -type f -name '*.sh')
+done < <(find bin provision tests scripts -type f -name '*.sh')
 
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -x "${scripts[@]}"

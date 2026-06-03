@@ -23,13 +23,18 @@ cd homebrew-machine && git add . && git commit -m "Initial formula" && git push
 
 ## Cutting a release
 
-The one-shot way:
+1. Make sure `CHANGELOG.md` has the release notes under `## [Unreleased]`
+   (the script refuses to release an empty section).
+2. Run the one-shot script:
 
 ```sh
 scripts/release.sh 0.1.1
 ```
 
-It tags, computes sha256, bumps both formulas, pushes both repos, and creates a GitHub Release with auto-generated notes. Requires a clean working tree and `gh auth status` healthy.
+It runs lint + unit, promotes the Unreleased changelog section to the new
+version, tags, computes sha256, bumps both formulas, pushes both repos, and
+creates a GitHub Release whose notes are that changelog section. Requires a
+clean working tree and `gh auth status` healthy.
 
 ### Or by hand
 
