@@ -1,5 +1,8 @@
 # machine — one isolated Lima VM per project
 
+[![CI](https://github.com/katspaugh/machine/actions/workflows/ci.yml/badge.svg)](https://github.com/katspaugh/machine/actions/workflows/ci.yml)
+[![Smoke](https://github.com/katspaugh/machine/actions/workflows/smoke.yml/badge.svg)](https://github.com/katspaugh/machine/actions/workflows/smoke.yml)
+
 [runmachine.dev](https://runmachine.dev/)
 
 ![machine](assets/banner.svg)
