@@ -1,6 +1,7 @@
 """Unit tests for the host-side helpers in bin/machine. No VM required."""
 import importlib.util
 import os
+import socket
 import tempfile
 import unittest
 from unittest import mock
@@ -102,6 +103,47 @@ class TestHelpers(unittest.TestCase):
     def test_render_template_rejects_unknown_profile(self):
         with self.assertRaises(SystemExit):
             self.m.render_template("wallet", ["nope"], golden=False)
+
+    def test_configure_ssh_agent_uses_1password_socket_when_present(self):
+        sock_path = Path(self.tmp.name) / "agent.sock"
+        srv = socket.socket(socket.AF_UNIX)
+        self.addCleanup(srv.close)
+        srv.bind(str(sock_path))
+        with mock.patch.dict(os.environ, {
+            "ONEPASS_SOCK": str(sock_path),
+            "SSH_AUTH_SOCK": "/orig/agent.sock",
+        }):
+            self.m.configure_ssh_agent()
+            self.assertEqual(os.environ["SSH_AUTH_SOCK"], str(sock_path))
+
+    def test_configure_ssh_agent_keeps_default_when_socket_missing(self):
+        with mock.patch.dict(os.environ, {
+            "ONEPASS_SOCK": str(Path(self.tmp.name) / "nope.sock"),
+            "SSH_AUTH_SOCK": "/orig/agent.sock",
+        }):
+            self.m.configure_ssh_agent()
+            self.assertEqual(os.environ["SSH_AUTH_SOCK"], "/orig/agent.sock")
+
+    def test_configure_ssh_agent_ignores_non_socket_path(self):
+        not_a_socket = Path(self.tmp.name) / "plain-file"
+        not_a_socket.write_text("")
+        with mock.patch.dict(os.environ, {
+            "ONEPASS_SOCK": str(not_a_socket),
+            "SSH_AUTH_SOCK": "/orig/agent.sock",
+        }):
+            self.m.configure_ssh_agent()
+            self.assertEqual(os.environ["SSH_AUTH_SOCK"], "/orig/agent.sock")
+
+    def test_configure_ssh_agent_warns_about_removed_flag(self):
+        import io
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, {
+            "MACHINE_USE_1PASSWORD": "1",
+            "ONEPASS_SOCK": str(Path(self.tmp.name) / "nope.sock"),
+            "SSH_AUTH_SOCK": "/orig/agent.sock",
+        }), mock.patch("sys.stderr", stderr):
+            self.m.configure_ssh_agent()
+        self.assertIn("MACHINE_USE_1PASSWORD", stderr.getvalue())
 
     def test_resolve_up_known_project(self):
         urls, profiles = self.m.resolve_up_target(self.m.load_projects(), "blog")

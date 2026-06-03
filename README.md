@@ -40,7 +40,7 @@ The flake pins its own Lima (≥ 2.0) and Python from nixpkgs-unstable. Pin a re
 
 - An SSH key on the host, served by an agent the VM can forward. Either:
   - **macOS Keychain** (default): `ssh-add --apple-use-keychain ~/.ssh/id_ed25519`
-  - **1Password**: enable 1Password → Settings → Developer → *Use the SSH agent*, then run `machine` with `MACHINE_USE_1PASSWORD=1` (see [SSH agent](#ssh-agent) below).
+  - **1Password**: enable 1Password → Settings → Developer → *Use the SSH agent* — `machine` detects the agent socket and forwards it automatically (see [SSH agent](#ssh-agent) below).
 - That key registered as a **signing key** on GitHub (Settings → SSH and GPG keys → New SSH key → Key type: Signing).
 - Host `git config --global user.name` and `user.email` set (or override via `GIT_NAME` / `GIT_EMAIL`).
 
@@ -268,16 +268,9 @@ ln -s "$PWD/completions/machine.fish" ~/.config/fish/completions/machine.fish
 
 ## SSH agent
 
-By default the VM forwards whatever the host's `SSH_AUTH_SOCK` points at — on macOS that's launchd's agent, which serves keys you loaded with `ssh-add --apple-use-keychain` (passphrase cached in Keychain).
+`machine` picks the agent to forward automatically: if 1Password's SSH agent socket exists (Settings → Developer → *Use the SSH agent*), it forwards that — keys never touch `~/.ssh`, every signature prompts for Touch ID. Otherwise it forwards whatever the host's `SSH_AUTH_SOCK` points at — on macOS that's launchd's agent, which serves keys you loaded with `ssh-add --apple-use-keychain` (passphrase cached in Keychain).
 
-To use 1Password's agent instead — keys never touch `~/.ssh`, every signature prompts for Touch ID:
-
-```sh
-brew install 1password-cli                    # only needed for OP_SIGNING_KEY_REF
-# In 1Password: Settings → Developer → "Use the SSH agent"
-export MACHINE_USE_1PASSWORD=1                # for the current shell, or your shell rc
-machine up <project>
-```
+To force the Keychain agent while 1Password's agent is enabled, point `ONEPASS_SOCK` at a non-socket path (e.g. `ONEPASS_SOCK=/dev/null machine up <project>`).
 
 For the git signing pubkey, the resolution order is:
 
@@ -318,8 +311,7 @@ No host filesystem is mounted. Each project gets its own VM, so a compromise of 
 | `GIT_SIGNING_PUBKEY_FILE` | path to a `.pub` file (overrides host `user.signingkey`) |
 | `GIT_SIGNING_KEY` | literal pubkey string (overrides everything) |
 | `OP_SIGNING_KEY_REF` | 1Password secret reference for the signing pubkey (e.g. `op://Personal/SSH/public key`) |
-| `MACHINE_USE_1PASSWORD` | set `=1` to forward 1Password's SSH agent instead of macOS Keychain |
-| `ONEPASS_SOCK` | `~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock` |
+| `ONEPASS_SOCK` | 1Password agent socket path (default `~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock`); auto-forwarded when it exists |
 | `PROJECTS_FILE` | `<repo>/projects.toml` in dev mode; `~/.config/machine/projects.toml` under Homebrew |
 | `MACHINE_CONFIG_DIR` | config-directory location (`~/.config/machine` by default) |
 | `MACHINE_STATE_DIR` | generated-state location (`<repo>/.build` in dev mode; `~/.local/state/machine` under Homebrew) |
