@@ -94,6 +94,11 @@
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>git clone git@github.com:katspaugh/machine.git ~/Sites/machine
 <span class="prompt">$ </span>~/Sites/machine/bin/machine doctor</code></pre>
         <p>In dev mode <code>projects.toml</code> lives at the repo root. Under Homebrew it lives at <code>~/.config/machine/projects.toml</code>. Override the directory with <code>MACHINE_CONFIG_DIR</code>.</p>
+
+        <h3>Nix</h3>
+        <p>The repo is also a flake — no Homebrew needed. It pins its own Lima (&ge; 2.0) and Python from nixpkgs-unstable.</p>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>nix profile install github:katspaugh/machine
+<span class="prompt">$ </span>nix run github:katspaugh/machine -- doctor</code></pre>
       </section>
 
       <section id="prereqs">
@@ -109,6 +114,7 @@
 
       <section id="setup">
         <h2><span class="num">03</span>Setup &amp; projects.toml</h2>
+        <p>No setup needed for a scratch VM — <code>machine up</code> launches a base VM named <code>default</code> out of the box. Add a config when you want repos cloned or profiles:</p>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine init                  <span class="cmt"># writes ~/.config/machine/projects.toml from the bundled example</span>
 <span class="prompt">$ </span>$EDITOR ~/.config/machine/projects.toml</code></pre>
         <p class="muted">In dev mode: <code>cp projects.toml.example projects.toml &amp;&amp; $EDITOR projects.toml</code> from the repo root.</p>
@@ -140,7 +146,8 @@
 
       <section id="quickstart">
         <h2><span class="num">04</span>Quickstart</h2>
-        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine up blog            <span class="cmt"># create + start + provision VM "blog", clone the repo</span>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine up                 <span class="cmt"># zero-config: create + start a base VM named "default"</span>
+<span class="prompt">$ </span>machine up blog            <span class="cmt"># create + start + provision VM "blog", clone the repo</span>
 <span class="prompt">$ </span>machine ssh blog           <span class="cmt"># interactive shell, cwd = ~/code/blog</span></code></pre>
         <p>Host browser → VM web app: Lima auto-forwards any listening guest port to <code>127.0.0.1</code> on the host. The first <code>up</code> bakes the base disk and is the slow one — subsequent boots reuse it.</p>
         <div class="callout">
@@ -158,7 +165,7 @@
           <table>
             <thead><tr><th>command</th><th>what it does</th></tr></thead>
             <tbody>
-              <tr><td>machine up &lt;p&gt;</td><td class="desc">Create if needed, start, provision (base + profiles), clone the repo(s). Idempotent — re-running re-applies the provision scripts.</td></tr>
+              <tr><td>machine up [p]</td><td class="desc">Create if needed, start, provision (base + profiles), clone the repo(s). Idempotent. No name → base VM <code>default</code>; unknown names offer an ad-hoc base VM.</td></tr>
               <tr><td>machine down &lt;p&gt;</td><td class="desc">Stop the VM (preserves disk). Re-provision in place with <code>machine up</code> afterwards.</td></tr>
               <tr><td>machine ssh &lt;p&gt;</td><td class="desc">Interactive shell, cwd = <code>~/code/&lt;primary-repo&gt;</code>.</td></tr>
               <tr><td>machine claude &lt;p&gt;</td><td class="desc">Open an SSH session and launch <code>claude</code> straight away, cwd = <code>~/code/&lt;primary-repo&gt;</code>.</td></tr>

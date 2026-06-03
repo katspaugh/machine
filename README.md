@@ -25,6 +25,17 @@ git clone git@github.com:katspaugh/machine.git ~/Sites/machine
 
 In dev mode `projects.toml` lives at the repo root; under brew it lives at `~/.config/machine/projects.toml` (override with `MACHINE_CONFIG_DIR`).
 
+### Nix
+
+The repo is also a flake — no Homebrew needed:
+
+```sh
+nix profile install github:katspaugh/machine   # install
+nix run github:katspaugh/machine -- doctor     # or run one-off
+```
+
+The flake pins its own Lima (≥ 2.0) and Python from nixpkgs-unstable. Pin a release with `github:katspaugh/machine/v0.2.0`.
+
 ## Prerequisites
 
 - An SSH key on the host, served by an agent the VM can forward. Either:
@@ -36,6 +47,10 @@ In dev mode `projects.toml` lives at the repo root; under brew it lives at `~/.c
 Run `machine doctor` to verify everything resolves.
 
 ## Setup
+
+No setup needed for a scratch VM — `machine up` launches a base VM named
+`default` out of the box (and `machine up <name>` offers to create an empty
+VM under any name). Add a config when you want repos cloned or profiles:
 
 ```sh
 machine init                  # writes ~/.config/machine/projects.toml from the bundled example
@@ -106,6 +121,7 @@ Then `ssh lima-<project>` works everywhere.
 ## Quickstart
 
 ```sh
+machine up                 # zero-config: creates + starts a base VM named "default"
 machine up blog            # creates + starts + provisions VM "blog", clones the repo
 machine ssh blog           # interactive shell, cwd = ~/code/blog
 ```
@@ -137,7 +153,7 @@ automatically — there is no host `~/.ssh/config` block for `machine` to manage
 
 | Command | What |
 |---|---|
-| `machine up <p>` | Create if needed, start, provision, clone the repo(s). Idempotent — re-running re-applies the provision scripts. |
+| `machine up [p]` | Create if needed, start, provision, clone the repo(s). Idempotent — re-running re-applies the provision scripts. No name → base VM `default`; unknown names offer an ad-hoc base VM. |
 | `machine down <p>` | Stop the VM (preserves disk). Re-provision in place with `machine up <p>` afterwards. |
 | `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). |
 | `machine claude <p>` | Open an SSH session and launch `claude` straight away (cwd = `~/code/<primary-repo>`). Exiting `claude` ends the session. |

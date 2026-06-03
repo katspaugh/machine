@@ -89,10 +89,7 @@ def configure_ssh_agent() -> None:
 # --- Projects TOML helpers -------------------------------------------------
 def load_projects() -> dict[str, Any]:
     if not PROJECTS_FILE.is_file():
-        die(
-            f"{PROJECTS_FILE} not found. "
-            f"Run `machine init` (or copy {REPO / 'projects.toml.example'} to {PROJECTS_FILE} and edit)."
-        )
+        return {}
     return tomllib.loads(PROJECTS_FILE.read_text())
 
 
@@ -107,13 +104,17 @@ def project_urls(name: str) -> list[str]:
     return list(get_project(load_projects(), name).get("repos", []))
 
 
+def default_profiles(cfg: dict[str, Any]) -> list[str]:
+    """Top-level `default_profile` as a profile list ([] if unset/empty)."""
+    default = cfg.get("default_profile")
+    return [default] if default else []
+
+
 def project_profiles(name: str) -> list[str]:
     cfg = load_projects()
-    project = get_project(cfg, name)
-    profiles = project.get("profiles")
+    profiles = get_project(cfg, name).get("profiles")
     if profiles is None:
-        default = cfg.get("default_profile")
-        profiles = [default] if default else []
+        profiles = default_profiles(cfg)
     return [p for p in profiles if p]
 
 
@@ -446,12 +447,35 @@ def clone_repo(vm: str, url: str) -> None:
 
 
 # --- Commands ----------------------------------------------------------------
+def confirm_create(name: str) -> None:
+    """Gate ad-hoc VM creation behind a y/N prompt (typo safety)."""
+    try:
+        ans = input(f"No project '{name}' in {PROJECTS_FILE} — create a base VM? [y/N] ")
+    except EOFError:
+        ans = ""
+    if ans != "y":
+        die("aborted")
+
+
+def resolve_up_target(cfg: dict[str, Any], name: str) -> tuple[list[str], list[str]]:
+    """(urls, profiles) for `machine up`.
+
+    Names not in the config become ad-hoc base VMs: no repos, profiles from
+    `default_profile`. Creation is confirmed first, except for the implicit
+    'default' VM and VMs that already exist (re-`up` stays non-interactive).
+    """
+    if isinstance(cfg.get(name), dict):
+        return project_urls(name), project_profiles(name)
+    if name != "default" and not vm_exists(name):
+        confirm_create(name)
+    return [], default_profiles(cfg)
+
+
 def cmd_up(args: argparse.Namespace) -> int:
     name = args.project
     validate_name(name)
+    urls, profiles = resolve_up_target(load_projects(), name)
     close_lima_ssh_master(name)
-    urls = project_urls(name)
-    profiles = project_profiles(name)
     verify_repos_reachable(urls)
 
     if not vm_exists(name):
@@ -755,12 +779,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    up = sub.add_parser("up", help="Create (if needed) + start + provision + clone the project repo(s)")
-    up.add_argument("project")
+    up = sub.add_parser("up", help="Create (if needed) + start + provision + clone the project repo(s). "
+                                   "With no name, launches a config-less base VM called 'default'.")
+    up.add_argument("project", nargs="?", default="default")
 
-    sub.add_parser("down", help="Stop the VM").add_argument("project")
-    sub.add_parser("ssh", help="Open an interactive shell (cwd = ~/code/<primary-repo>)").add_argument("project")
-    sub.add_parser("claude", help="Open an SSH session and launch `claude`").add_argument("project")
+    sub.add_parser("down", help="Stop the VM").add_argument("project", nargs="?", default="default")
+    sub.add_parser("ssh", help="Open an interactive shell (cwd = ~/code/<primary-repo>)").add_argument("project", nargs="?", default="default")
+    sub.add_parser("claude", help="Open an SSH session and launch `claude`").add_argument("project", nargs="?", default="default")
 
     run_p = sub.add_parser("run", help="Run a non-interactive command in the VM")
     run_p.add_argument("project")
@@ -769,14 +794,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="List VMs (limactl list) + configured-but-missing projects")
 
     destroy = sub.add_parser("destroy", help="Delete the VM (irreversible)")
-    destroy.add_argument("project")
+    destroy.add_argument("project", nargs="?", default="default")
     destroy.add_argument("-y", "--force", action="store_true", help="Skip confirmation")
 
     bake_p = sub.add_parser("bake", help="Build/refresh the cached base image used by 'up'")
     bake_p.add_argument("--force", action="store_true", help="Rebuild even if the cache is fresh")
 
     sec = sub.add_parser("secrets", help="Render 1Password Environment(s) into VM tmpfs")
-    sec.add_argument("project")
+    sec.add_argument("project", nargs="?", default="default")
     sec.add_argument("--repo", help="Only this repo (default: all repos with `use op_env` .envrc)")
     sec.add_argument("--clear", action="store_true", help="Wipe rendered secrets from VM tmpfs")
 
