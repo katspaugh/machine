@@ -28,7 +28,7 @@ limactl shell "$NAME" -- bash -lc "tmux has-session -t $SESSION" \
 # (the cmd_claude mechanism). Running `new-session -A` over `limactl shell`
 # has no tty and fails outright, so assert the single-session invariant by
 # counting instead: there must be exactly one session of this name.
-count=$(limactl shell "$NAME" -- bash -lc "tmux list-sessions -F '#S' | grep -cx $SESSION")
+count=$(limactl shell "$NAME" -- bash -lc "tmux list-sessions -F '#S' | grep -cx $SESSION || true")
 [ "$count" = "1" ] || { echo "expected exactly 1 session, got $count"; exit 1; }
 
 # Killing the session removes it (mirrors claude exiting).
