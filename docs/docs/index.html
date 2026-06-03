@@ -100,7 +100,7 @@
         <h2><span class="num">02</span>Prerequisites</h2>
         <p>Three host-side things need to be in place before the first <code>machine up</code>:</p>
         <ul>
-          <li>An SSH key on the host, served by an agent the VM can forward. Either the <strong>macOS Keychain</strong> (default — <code>ssh-add --apple-use-keychain ~/.ssh/id_ed25519</code>) or <strong>1Password</strong> (Settings → Developer → <em>Use the SSH agent</em>, then run with <code>MACHINE_USE_1PASSWORD=1</code>).</li>
+          <li>An SSH key on the host, served by an agent the VM can forward. Either the <strong>macOS Keychain</strong> (<code>ssh-add --apple-use-keychain ~/.ssh/id_ed25519</code>) or <strong>1Password</strong> (Settings → Developer → <em>Use the SSH agent</em> — detected and forwarded automatically).</li>
           <li>That key registered as a <strong>signing key</strong> on GitHub (Settings → SSH and GPG keys → New SSH key → Key type: <em>Signing</em>).</li>
           <li>Host <code>git config --global user.name</code> and <code>user.email</code> set, or override via <code>GIT_NAME</code> / <code>GIT_EMAIL</code>.</li>
         </ul>
@@ -220,12 +220,8 @@
 
       <section id="ssh-agent">
         <h2><span class="num">09</span>SSH agent</h2>
-        <p>By default the VM forwards whatever the host's <code>SSH_AUTH_SOCK</code> points at — on macOS that's launchd's agent, which serves keys you loaded with <code>ssh-add --apple-use-keychain</code> (passphrase cached in Keychain).</p>
-        <p>To use 1Password's agent instead — keys never touch <code>~/.ssh</code>, every signature prompts for Touch ID:</p>
-        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>brew install 1password-cli                    <span class="cmt"># only needed for OP_SIGNING_KEY_REF</span>
-<span class="cmt"># In 1Password: Settings → Developer → "Use the SSH agent"</span>
-<span class="prompt">$ </span><span class="kw">export</span> MACHINE_USE_1PASSWORD=<span class="str">1</span>                <span class="cmt"># for the current shell, or your shell rc</span>
-<span class="prompt">$ </span>machine up &lt;project&gt;</code></pre>
+        <p><code>machine</code> picks the agent to forward automatically: if 1Password's SSH agent socket exists (Settings → Developer → <em>Use the SSH agent</em>), it forwards that — keys never touch <code>~/.ssh</code>, every signature prompts for Touch ID. Otherwise it forwards whatever the host's <code>SSH_AUTH_SOCK</code> points at — on macOS that's launchd's agent, which serves keys you loaded with <code>ssh-add --apple-use-keychain</code> (passphrase cached in Keychain).</p>
+        <p>To force the Keychain agent while 1Password's agent is enabled, point <code>ONEPASS_SOCK</code> at a non-socket path (e.g. <code>ONEPASS_SOCK=/dev/null machine up &lt;project&gt;</code>).</p>
 
         <h3>Resolution order for the git signing pubkey</h3>
         <ol>
@@ -292,8 +288,7 @@
               <tr><td>GIT_SIGNING_PUBKEY_FILE</td><td class="desc">Path to a <code>.pub</code> file (overrides host <code>user.signingkey</code>).</td></tr>
               <tr><td>GIT_SIGNING_KEY</td><td class="desc">Literal pubkey string (overrides everything).</td></tr>
               <tr><td>OP_SIGNING_KEY_REF</td><td class="desc">1Password secret reference for the signing pubkey, e.g. <code>op://Personal/SSH/public key</code>.</td></tr>
-              <tr><td>MACHINE_USE_1PASSWORD</td><td class="desc">Set <code>=1</code> to forward 1Password's SSH agent instead of macOS Keychain.</td></tr>
-              <tr><td>ONEPASS_SOCK</td><td class="desc"><code>~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock</code></td></tr>
+              <tr><td>ONEPASS_SOCK</td><td class="desc">1Password agent socket path (default <code>~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock</code>); auto-forwarded when it exists.</td></tr>
               <tr><td>PROJECTS_FILE</td><td class="desc"><code>&lt;repo&gt;/projects.toml</code> in dev mode; <code>~/.config/machine/projects.toml</code> under Homebrew.</td></tr>
               <tr><td>MACHINE_CONFIG_DIR</td><td class="desc">Overrides the config-directory location (<code>~/.config/machine</code> by default).</td></tr>
             </tbody>
