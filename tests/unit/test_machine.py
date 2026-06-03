@@ -134,6 +134,17 @@ class TestHelpers(unittest.TestCase):
             self.m.configure_ssh_agent()
             self.assertEqual(os.environ["SSH_AUTH_SOCK"], "/orig/agent.sock")
 
+    def test_configure_ssh_agent_warns_about_removed_flag(self):
+        import io
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, {
+            "MACHINE_USE_1PASSWORD": "1",
+            "ONEPASS_SOCK": str(Path(self.tmp.name) / "nope.sock"),
+            "SSH_AUTH_SOCK": "/orig/agent.sock",
+        }), mock.patch("sys.stderr", stderr):
+            self.m.configure_ssh_agent()
+        self.assertIn("MACHINE_USE_1PASSWORD", stderr.getvalue())
+
     def test_resolve_up_known_project(self):
         urls, profiles = self.m.resolve_up_target(self.m.load_projects(), "blog")
         self.assertEqual(urls, ["git@github.com:me/blog.git"])

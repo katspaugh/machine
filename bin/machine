@@ -81,6 +81,10 @@ def configure_ssh_agent() -> None:
     location), prefer it; otherwise leave SSH_AUTH_SOCK alone so the macOS
     Keychain agent is forwarded. ONEPASS_SOCK pointed at a non-socket path
     (e.g. /dev/null) forces the Keychain fallback."""
+    if os.environ.get("MACHINE_USE_1PASSWORD"):
+        print("machine: MACHINE_USE_1PASSWORD is no longer used; the "
+              "1Password agent is auto-detected when its socket exists",
+              file=sys.stderr)
     sock = Path(os.environ.get("ONEPASS_SOCK") or ONEPASS_SOCK_DEFAULT)
     if sock.is_socket():
         os.environ["SSH_AUTH_SOCK"] = str(sock)
