@@ -34,8 +34,10 @@ New `smoke-macos` job in `.github/workflows/ci.yml`:
   write a minimal `projects.toml` (one project, **no repos** — avoids needing
   SSH keys in CI), `machine up ci-smoke`, run the in-VM smoke suite, then
   `machine destroy -y ci-smoke`.
-- The git-signing smoke is skipped in CI (needs an SSH agent + GitHub key);
-  gate it behind an env check rather than forking the suite.
+- The git-signing smoke runs for real in CI: a throwaway ed25519 key in an
+  ssh-agent plus `GIT_SIGNING_KEY=<literal pubkey>` is enough — signing
+  verifies against the rendered `allowed_signers`, no GitHub account
+  involved. No smoke needs gating.
 - **Triggers:** push to `main` + nightly cron. Not on PRs (10–20 min VM boot
   would slow contributor feedback; a PR label opt-in can come later).
 - **Risk:** nested-virt support on arm64 macOS runners is image-dependent.
@@ -46,20 +48,23 @@ New `smoke-macos` job in `.github/workflows/ci.yml`:
 
 ### 2. Release automation
 
+*(Amended 2026-06-03: `scripts/release.sh` already automates tagging, SHA256,
+both formula bumps, the tap push, and the GitHub Release. The original
+tag-driven `release.yml` design was based on the false premise that releases
+were fully manual. Decision: enhance the existing local script — no PAT
+secrets, no Actions pushing to main.)*
+
 - **CHANGELOG.md** in Keep-a-Changelog format, hand-maintained under an
   `## Unreleased` heading as features land. No release-drafter machinery.
-- **`release.yml`** workflow, triggered on `v*` tags:
-  1. Compute SHA256 of the tag tarball.
-  2. Update `Formula/machine.rb` (URL + SHA256) and the `flake.nix` version,
-     commit back to `main`. (The formula pin lands one commit after the tag;
-     fine — the formula references the tag tarball, not `main`.)
-  3. Push the formula to `katspaugh/homebrew-machine` via a fine-grained PAT
-     (repo secret, write access scoped to the tap only).
-  4. Promote `Unreleased` → the new version section in CHANGELOG.md and
-     create a GitHub Release with that section as the notes body.
-- **`scripts/release-check.sh`** pre-tag check run by the workflow first:
-  version consistency, lint + unit green. TAP.md shrinks to "update
-  CHANGELOG, push a tag."
+- **Enhance `scripts/release.sh`:**
+  1. Preflight additionally runs `tests/lint.sh` + `tests/unit.sh` and
+     requires a non-empty `## Unreleased` section in CHANGELOG.md.
+  2. Promotes `Unreleased` → `## vX.Y.Z — YYYY-MM-DD` (committed alongside
+     the flake version bump, so the tag carries it).
+  3. Creates the GitHub Release with that changelog section as the notes
+     body (`--notes-file`) instead of `--generate-notes`.
+- **TAP.md** updated: cutting a release = update CHANGELOG, run
+  `scripts/release.sh <version>`.
 
 ### 3. Contributor & repo-maturity surface
 
@@ -90,8 +95,10 @@ site generator):
 ### 5. Listings pass (last, ~1 day)
 
 After 1–4 land: PR to awesome-claude-code (and similar agent-tooling lists),
-PR to Lima's ecosystem/adopters page, Homebrew analytics opt-in note, and an
-optional nixpkgs submission (flake already exists).
+PR to Lima's ecosystem/adopters page, and an optional nixpkgs submission
+(flake already exists; defer until the nightly smoke has a green track
+record). *(Amended: dropped the "Homebrew analytics opt-in" item — install
+analytics only exist for homebrew-core, not third-party taps.)*
 
 ## Order of work
 
@@ -109,7 +116,8 @@ desired; 5 is strictly last.
 ## Success criteria
 
 - CI badge on README reflects a green macOS smoke job running nightly.
-- A release is: edit CHANGELOG, push a tag — everything else is automated.
+- A release is: edit CHANGELOG, run `scripts/release.sh <version>` —
+  everything else is automated.
 - GitHub Releases page shows real notes per version.
 - "Sandboxing Claude Code" page live and linked; repo topics set.
 - Project listed on at least awesome-claude-code and Lima's ecosystem page.
