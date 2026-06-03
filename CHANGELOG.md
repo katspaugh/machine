@@ -8,9 +8,10 @@ by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
-- `modern` opt-in profile: bat, delta, fzf, lazygit, helix (rg stays in base).
-- macOS CI smoke workflow: boots a real Lima VM on every push to main and
-  nightly, runs the full in-VM smoke suite.
+- `modern` opt-in profile: bat, delta, fzf, lazygit, helix — opt in per
+  project; `rg` remains in the base VM.
+- macOS CI smoke workflow: boots a real Lima VM on push to `main` and
+  nightly; runs the full in-VM smoke suite.
 
 ### Fixed
 - `machine down` is idempotent when the VM is already stopped.
@@ -29,7 +30,15 @@ by `scripts/release.sh`.
   `SSH_AUTH_SOCK`); `MACHINE_USE_1PASSWORD` is gone.
 
 ### Fixed
-- Deps-install warnings, guest workdir resolution, and secrets reachability.
+- `machine up` no longer prints `✓ ready` when a best-effort JS dependency
+  install failed — it now ends with `⚠ <name> ready with warnings:` (exit
+  code stays 0), so a broken `npm install` is no longer reported as success.
+- Guest workdir resolution asks the VM for its real path instead of
+  fabricating `/home/$USER.linux/…` from the host environment — fixes a
+  crash when `$USER` is unset and wrong paths when host and guest usernames
+  differ.
+- `machine secrets` now fails with a clear "cannot reach VM" hint when
+  `limactl` can't reach the VM, instead of the misleading "nothing found".
 
 ## [0.2.0] — 2026-06-02
 
@@ -38,11 +47,13 @@ by `scripts/release.sh`.
 - Supabase CLI installed from its `.deb` release artifact.
 
 ### Changed
-- Rewritten on Lima-native template composition (`base:` stacks) — the
-  custom TOML provisioning DSL is replaced by Lima templates.
-- The Tauri GUI, its cask, and the DMG release workflow are removed;
-  `machine` is now CLI-only.
+- Rewritten on Lima-native template composition (`base:` stacks) — replaces
+  the custom TOML provisioning DSL with Lima templates.
 - New projects no longer default to the `cypress` profile.
+
+### Removed
+- The Tauri GUI, its Homebrew cask, and the DMG release workflow — `machine`
+  is now CLI-only.
 
 [Unreleased]: https://github.com/katspaugh/machine/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/katspaugh/machine/compare/v0.2.0...v0.2.1
