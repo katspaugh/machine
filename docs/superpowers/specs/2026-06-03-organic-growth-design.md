@@ -1,0 +1,115 @@
+# Organic growth: trust-first maturity + one content page
+
+**Date:** 2026-06-03
+**Status:** Approved
+
+## Goal
+
+Grow adoption of `machine` among AI-agent power users (devs running Claude
+Code/Codex who want agent autonomy without risking their host) under an
+**organic-only** posture — no launch posts. Strategy: close the trust &
+maturity gaps first so every organic visitor sees a maintained project, plant
+one high-value content page, then do a listings pass.
+
+## Current state (gaps)
+
+- CI runs lint + unit + YAML validation on Ubuntu only — the actual product
+  path (`machine up` → Lima boot → provision → smoke) is never CI-tested.
+- Releases are the manual TAP.md runbook with three hand-edited version pins
+  (`Formula/machine.rb` here, the tap repo, `flake.nix`). No CHANGELOG, no
+  GitHub Releases.
+- No CONTRIBUTING.md, issue templates, or PR template. Repo topics unset.
+- runmachine.dev is a single landing page — nothing to rank for the searches
+  the target audience makes.
+- Not listed in any ecosystem directory (awesome-claude-code, Lima ecosystem,
+  nixpkgs).
+
+## Design
+
+### 1. macOS CI smoke job
+
+New `smoke-macos` job in `.github/workflows/ci.yml`:
+
+- Runs on a GitHub-hosted Apple-silicon macOS runner. `brew install lima`,
+  write a minimal `projects.toml` (one project, **no repos** — avoids needing
+  SSH keys in CI), `machine up ci-smoke`, run the in-VM smoke suite, then
+  `machine destroy -y ci-smoke`.
+- The git-signing smoke is skipped in CI (needs an SSH agent + GitHub key);
+  gate it behind an env check rather than forking the suite.
+- **Triggers:** push to `main` + nightly cron. Not on PRs (10–20 min VM boot
+  would slow contributor feedback; a PR label opt-in can come later).
+- **Risk:** nested-virt support on arm64 macOS runners is image-dependent.
+  First implementation step is a throwaway workflow run to verify `vz` works
+  on the pinned image; fall back to QEMU/TCG (slow but functional — Lima's
+  own CI approach) if not.
+- Add the CI badge to the README.
+
+### 2. Release automation
+
+- **CHANGELOG.md** in Keep-a-Changelog format, hand-maintained under an
+  `## Unreleased` heading as features land. No release-drafter machinery.
+- **`release.yml`** workflow, triggered on `v*` tags:
+  1. Compute SHA256 of the tag tarball.
+  2. Update `Formula/machine.rb` (URL + SHA256) and the `flake.nix` version,
+     commit back to `main`. (The formula pin lands one commit after the tag;
+     fine — the formula references the tag tarball, not `main`.)
+  3. Push the formula to `katspaugh/homebrew-machine` via a fine-grained PAT
+     (repo secret, write access scoped to the tap only).
+  4. Promote `Unreleased` → the new version section in CHANGELOG.md and
+     create a GitHub Release with that section as the notes body.
+- **`scripts/release-check.sh`** pre-tag check run by the workflow first:
+  version consistency, lint + unit green. TAP.md shrinks to "update
+  CHANGELOG, push a tag."
+
+### 3. Contributor & repo-maturity surface
+
+- **CONTRIBUTING.md** — dev-mode setup, how to run lint/unit/VM smokes, and a
+  "writing a profile" walkthrough (template + provision script pair).
+  Profiles are the natural contribution surface.
+- **Issue templates** — bug report (asks for `machine doctor` output, Lima
+  version, macOS version, `cloud-init-output.log` tail) and feature/profile
+  request. Minimal PR template (what changed, how verified).
+- **Repo metadata** — description, website, topics: `lima`, `claude-code`,
+  `sandbox`, `ai-agents`, `developer-tools`, `vm`, `macos`.
+
+### 4. Content page: "Sandboxing Claude Code"
+
+One static guide page on runmachine.dev, matching the existing site style (no
+site generator):
+
+- Problem (agents with shell access; what `--dangerously-skip-permissions`
+  exposes) → isolation model (per-project VM, no host mounts, narrow
+  SSH-agent + tmpfs-secrets channels, distilled from the README threat model)
+  → 3-command quickstart → **honest** comparison table (machine vs
+  devcontainers vs bare host vs Docker sandboxes, naming where the others
+  win).
+- Placed under `docs/` wherever GitHub Pages routing wants it; linked from
+  the landing-page nav and a short new README section.
+- SEO basics only: title/description/OpenGraph, semantic headings.
+
+### 5. Listings pass (last, ~1 day)
+
+After 1–4 land: PR to awesome-claude-code (and similar agent-tooling lists),
+PR to Lima's ecosystem/adopters page, Homebrew analytics opt-in note, and an
+optional nixpkgs submission (flake already exists).
+
+## Order of work
+
+1 (CI smoke) → 2 (release automation) → 3 (contributor surface) → 4 (content
+page) → 5 (listings). Sections 3 and 4 can proceed in parallel with 1–2 if
+desired; 5 is strictly last.
+
+## Non-goals
+
+- No launch posts (HN/Reddit/X) — organic-only by explicit choice.
+- No site generator / docs framework for one page.
+- No PR-triggered VM CI initially.
+- No automated changelog generation.
+
+## Success criteria
+
+- CI badge on README reflects a green macOS smoke job running nightly.
+- A release is: edit CHANGELOG, push a tag — everything else is automated.
+- GitHub Releases page shows real notes per version.
+- "Sandboxing Claude Code" page live and linked; repo topics set.
+- Project listed on at least awesome-claude-code and Lima's ecosystem page.
