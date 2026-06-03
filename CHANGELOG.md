@@ -37,6 +37,13 @@ by `scripts/release.sh`.
 - `playwright` profile: OS deps for Playwright's browsers.
 - Supabase CLI installed from its `.deb` release artifact.
 
+### Changed
+- Rewritten on Lima-native template composition (`base:` stacks) — the
+  custom TOML provisioning DSL is replaced by Lima templates.
+- The Tauri GUI, its cask, and the DMG release workflow are removed;
+  `machine` is now CLI-only.
+- New projects no longer default to the `cypress` profile.
+
 [Unreleased]: https://github.com/katspaugh/machine/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/katspaugh/machine/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/katspaugh/machine/compare/v0.1.6...v0.2.0
