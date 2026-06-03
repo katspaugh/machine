@@ -27,6 +27,7 @@ concurrency:
 
 env:
   LIMA_VERSION: "2.1.2"
+  LIMA_SHA256: "648ed5f599012a0864bd0c4809063b18116bca57f2593d30547dfedbef3c2ce0"
 
 jobs:
   smoke-linux-kvm:
@@ -45,11 +46,12 @@ jobs:
 
       - name: Install qemu + Lima ${{ env.LIMA_VERSION }}
         run: |
-          sudo apt-get update
+          sudo apt-get update || (sleep 15 && sudo apt-get update)
           sudo apt-get install -y qemu-system-x86 qemu-utils
           curl -fsSL -o /tmp/lima.tar.gz \
             "https://github.com/lima-vm/lima/releases/download/v${LIMA_VERSION}/lima-${LIMA_VERSION}-Linux-x86_64.tar.gz"
-          sudo tar -C /usr/local -xzf /tmp/lima.tar.gz
+          echo "${LIMA_SHA256}  /tmp/lima.tar.gz" | sha256sum --check
+          sudo tar -C /usr/local --no-same-owner -xzf /tmp/lima.tar.gz
           limactl --version
           python3 --version
 
@@ -80,6 +82,7 @@ jobs:
         run: |
           sed -i 's/^vmType: vz$/vmType: qemu/' templates/base.yaml
           grep -n 'vmType' templates/base.yaml
+          grep -q 'vmType: qemu' templates/base.yaml
 
       - name: machine up
         run: ./bin/machine up ci
