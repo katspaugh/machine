@@ -390,7 +390,6 @@ section + section { padding-top: 0; }
 }
 .installer.hero-installer {
   width: 100%;
-  max-width: 460px;
 }
 .hero-installer {
   width: 100%;
