@@ -7,8 +7,8 @@
 class Machine < Formula
   desc     "One isolated Lima VM per project — Docker, Node, agent CLIs, signed git"
   homepage "https://runmachine.dev"
-  url      "https://github.com/katspaugh/machine/archive/refs/tags/v0.2.1.tar.gz"
-  sha256   "789440b0e774b1c55f132d993669b61b20c06b7d62e7a22bc1031c1152ff8d1e"
+  url      "https://github.com/katspaugh/machine/archive/refs/tags/v0.2.2.tar.gz"
+  sha256   "b6fb707c15fc8c8e42483949ce5b5a4e1b0081f6990d9e9fcd78e60b5cfb12eb"
   license  "MIT"
   head     "https://github.com/katspaugh/machine.git", branch: "main"
 
