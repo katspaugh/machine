@@ -162,6 +162,12 @@ signing and `gh` work in the IDE's integrated terminal just like in `machine ssh
 Because Lima owns the config file, it stays correct across `up`/`down`/`destroy`
 automatically — there is no host `~/.ssh/config` block for `machine` to manage.
 
+Prefer a terminal editor? Skip the Remote-SSH plugin entirely and run one inside the
+machine: `machine run wallet hx` launches [Helix](https://helix-editor.com/) (likewise
+`vim`, `nvim`, `nano`) over your existing connection, opening in the project's repo
+(`~/code/<repo>`) so you can view and edit any file without anything editor-shaped on the
+host.
+
 ## Commands
 
 | Command | What |
@@ -171,7 +177,7 @@ automatically — there is no host `~/.ssh/config` block for `machine` to manage
 | `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). |
 | `machine claude <p>` | Launch `claude` in a tmux session in the VM (cwd = `~/code/<primary-repo>`). Detach with `ctrl-b d` — claude keeps running; re-run to reattach. Exiting `claude` ends the session. |
 | `machine tab [p]` | macOS: open a new Terminal.app tab connected to the same machine as the current tab (detected from the tab's `limactl shell` process). Pass a project to skip detection. Bind to a hotkey via Shortcuts.app ([below](#hotkey-new-tab-on-the-same-machine-macos)). |
-| `machine run <p> <cmd>...` | Non-interactive command in the VM. |
+| `machine run <p> <cmd>...` | Run a command in the VM (cwd = `~/code/<primary-repo>`). stdio is passed straight through, so full-screen TUIs work too — e.g. `machine run wallet hx` launches the [Helix](https://helix-editor.com/) editor inside the machine, in the project's repo, to view and edit any file. |
 | `machine list` | List VMs (`limactl list`) plus configured-but-not-yet-created projects. |
 | `machine destroy <p>` | Delete the VM. `-y` skips confirmation. |
 | `machine bake` | Build/refresh the cached base disk in `~/.cache/machine` used by `up`. `--force` rebuilds even if the cache hash is fresh. |

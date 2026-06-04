@@ -434,6 +434,7 @@ section + section { padding-top: 0; }
   grid-template-columns: repeat(3, 1fr);
   gap: var(--s-5);
 }
+.why-grid-4 { grid-template-columns: repeat(2, 1fr); }
 @media (max-width: 1024px) {
   .why-grid { grid-template-columns: repeat(2, 1fr); }
 }
@@ -492,6 +493,7 @@ section + section { padding-top: 0; }
   gap: var(--s-5);
   margin-top: var(--s-7);
 }
+.diagram-captions.captions-2 { grid-template-columns: repeat(2, 1fr); }
 @media (max-width: 640px) {
   .diagram-captions { grid-template-columns: 1fr; }
 }

@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>machine — one isolated VM per project</title>
-  <meta name="description" content="Reproducible, sandboxed Lima VMs for the Claude Code / Codex era. No host filesystem mount. No cross-project bleed. One machine up <project> away." />
+  <title>machine — one disposable Linux machine per project</title>
+  <meta name="description" content="Host-minimal development environments for the Claude Code / Codex era. machine keeps your Mac clean by running each project in its own disposable Linux VM. No host filesystem mount. No cross-project bleed." />
 
   <link rel="canonical" href="https://runmachine.dev/" />
   <meta property="og:url" content="https://runmachine.dev/" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="machine — one isolated VM per project" />
-  <meta property="og:description" content="Reproducible, sandboxed Lima VMs for the Claude Code / Codex era. No host filesystem mount. No cross-project bleed." />
+  <meta property="og:title" content="machine — one disposable Linux machine per project" />
+  <meta property="og:description" content="Host-minimal development environments for the Claude Code / Codex era. machine keeps your Mac clean by running each project in its own disposable Linux VM. No host filesystem mount. No cross-project bleed." />
   <meta property="og:image" content="https://runmachine.dev/assets/banner.svg" />
-  <meta property="og:image:alt" content="machine — one isolated Lima VM per project" />
+  <meta property="og:image:alt" content="machine — one disposable Linux machine per project" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content="https://runmachine.dev/assets/banner.svg" />
 
@@ -53,12 +53,13 @@
       <div class="hero-copy">
         <p class="hero-eyebrow">// never run <code>npm install</code> on your machine again</p>
         <h1>
-          Run code and devtools in a <span class="machine-2">machine</span>.
+          One disposable Linux <span class="machine-2">machine</span> per project.
         </h1>
         <p class="hero-sub">
-          Reproducible, sandboxed Lima VMs for the Claude Code / Codex era.
-          No host filesystem mount. No cross-project bleed.
-          One machine per project.
+          machine keeps your Mac clean by running each project in its own Lima VM.
+          Devtools, databases, browsers, build caches, secrets, and coding agents
+          stay inside the project machine — not on your host.
+          New laptop? <code>brew install machine</code>, connect your SSH agent, and get back to work.
         </p>
         <div class="hero-ctas">
           <div class="installer hero-installer">
@@ -90,7 +91,7 @@
     </div>
   </div>
 
-  <a class="scroll-hint" href="#machine-room" aria-label="Scroll down">
+  <a class="scroll-hint" href="#promise" aria-label="Scroll down">
     <span>scroll</span>
     <svg width="14" height="20" viewBox="0 0 14 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
       <path d="M7 3v13"/>
@@ -99,14 +100,31 @@
   </a>
 </section>
 
+<!-- ============ THE PROMISE ============ -->
+<section id="promise">
+  <div class="container reveal">
+    <p class="section-eyebrow">// section 01 — the promise</p>
+    <h2 class="section-title">Your Mac is not the dev environment.</h2>
+    <p class="section-intro">
+      Your Mac is the thin client: terminal, browser, SSH agent, password manager, machine.
+      Each project gets a real Linux VM with its own filesystem, tools, services, ports,
+      secrets, and agent sessions. Destroy it when it gets weird. Recreate it when you need it again.
+    </p>
+    <p class="section-intro">
+      Buy a new laptop, install Homebrew and machine, and your projects come back as machines —
+      not as a pile of global runtimes and forgotten setup steps.
+    </p>
+  </div>
+</section>
+
 <!-- ============ MACHINE ROOM ============ -->
 <section class="machine-room" id="machine-room">
   <div class="container reveal">
-    <p class="section-eyebrow">// section 01 — architecture</p>
+    <p class="section-eyebrow">// section 02 — architecture</p>
     <h2 class="section-title">The machine room.</h2>
     <p class="section-intro">
-      Your shell talks to the CLI. The CLI drives Lima. Lima boots a VM per project.
-      Nothing crosses a line that isn't explicitly drawn.
+      Your Mac stays small. The CLI drives Lima. Lima boots one Linux VM per project.
+      The VM gets the repo and the tools; the host keeps your keys, dotfiles, browser, and life.
     </p>
 
     <svg class="diagram" viewBox="0 0 1080 360" role="img" aria-label="Architecture diagram: host → CLI → Lima → VM, per project.">
@@ -216,30 +234,36 @@
   </div>
 </section>
 
-<!-- ============ WHY 3-UP ============ -->
+<!-- ============ WHY 4-UP ============ -->
 <section id="why">
   <div class="container reveal">
-    <p class="section-eyebrow">// section 02 — why bother</p>
-    <h2 class="section-title">Three things, in order of importance.</h2>
+    <p class="section-eyebrow">// section 03 — why bother</p>
+    <h2 class="section-title">Four things, in order of importance.</h2>
 
-    <div class="why-grid">
+    <div class="why-grid why-grid-4">
       <article class="why-card">
         <div class="why-num">01</div>
-        <h3>Isolated by default.</h3>
-        <p>One VM per project. The blast radius of a bad <code>postinstall</code> script is one VM, not your laptop.</p>
-        <code>machine up blog</code>
+        <h3>Your host stays clean.</h3>
+        <p>No project runtimes, databases, browser deps, global CLIs, package caches, or mystery setup on your Mac. Install machine once; put the mess in project VMs.</p>
+        <code>brew install katspaugh/machine/machine</code>
       </article>
       <article class="why-card">
         <div class="why-num">02</div>
-        <h3>Reproducible from templates.</h3>
-        <p>The base VM and every profile live in version-controlled Lima templates + provision scripts. Your teammate runs <code>up</code>, gets the same box.</p>
+        <h3>Each project gets a real boundary.</h3>
+        <p>One VM per project. No host filesystem mount. No shared project volumes. The blast radius of a bad dependency or over-eager agent is one disposable machine.</p>
         <code>machine up blog</code>
       </article>
       <article class="why-card">
         <div class="why-num">03</div>
-        <h3>Agent-ready, on day one.</h3>
-        <p>Claude Code and Codex ship in the base image, with the official Claude marketplace and a curated plugin set wired up. Point your editor at the SSH host and let them rip.</p>
-        <code>machine ssh blog</code>
+        <h3>Reproducible when it matters.</h3>
+        <p>Machines are built from version-controlled Lima templates and provision scripts. Destroy one, rebuild it, or bring the same setup to a new laptop.</p>
+        <code>machine destroy blog &amp;&amp; machine up blog</code>
+      </article>
+      <article class="why-card">
+        <div class="why-num">04</div>
+        <h3>Agent-ready by design.</h3>
+        <p>Claude Code and Codex ship in the base image, wired to the official Claude marketplace and a curated plugin set. They run inside the same Linux environment as the repo — your SSH agent is forwarded; your private keys stay on the host.</p>
+        <code>machine claude blog</code>
       </article>
     </div>
   </div>
@@ -248,11 +272,12 @@
 <!-- ============ GHOST (threat model) ============ -->
 <section id="threat-model">
   <div class="container reveal">
-    <p class="section-eyebrow">// section 03 — threat model</p>
+    <p class="section-eyebrow">// section 04 — threat model</p>
     <h2 class="section-title">Ghost in the machine.</h2>
     <p class="section-intro">
-      The point of a VM is the boundary. Here's exactly what crosses it and what doesn't.
-      No vibes — the file path on the right is real.
+      The point of a project machine is the boundary. Your repo, selected secrets, SSH agent,
+      and forwarded ports cross it. Your home directory, dotfiles, keychain, browser profile,
+      and other projects do not.
     </p>
 
     <div class="ghost">
@@ -281,13 +306,41 @@
   </div>
 </section>
 
+<!-- ============ CONTAINERS ============ -->
+<section id="containers">
+  <div class="container reveal">
+    <p class="section-eyebrow">// section 05 — why not just containers?</p>
+    <h2 class="section-title">Containers describe the project. Machines protect the host.</h2>
+    <p class="section-intro">
+      Devcontainers are great for declaring tools and services. machine gives them a clean place
+      to run: a disposable Linux VM per project, with no host filesystem mount and no
+      cross-project bleed. Use both — a project VM can run Docker and devcontainers inside Linux,
+      while your Mac only runs machine.
+    </p>
+
+    <div class="diagram-captions captions-2">
+      <div class="cap">
+        <div class="k">.devcontainer/devcontainer.json</div>
+        <div class="v">describes the environment — the tools, services, and setup a repo expects.</div>
+      </div>
+      <div class="cap">
+        <div class="k">machine up</div>
+        <div class="v">decides where it safely lives: a disposable Linux VM, not your Mac.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ============ MACHINE SHOP ============ -->
 <section id="profiles">
   <div class="container reveal">
-    <p class="section-eyebrow">// section 04 — profiles</p>
+    <p class="section-eyebrow">// section 06 — profiles</p>
     <h2 class="section-title">The machine shop.</h2>
     <p class="section-intro">
-      Profiles stack. Pick a base, layer extras from the bundled templates, or write your own as a small template + provision script.
+      Profiles are the only setup you repeat. Pick a base, layer extras like Playwright, Cypress,
+      Supabase, or Fly, or write your own as a small template + provision script. The result lives
+      in the project machine, not in <code>/opt/homebrew</code>, <code>~/Library</code>, or some
+      forgotten global npm install.
     </p>
 
     <div class="profile-grid">
@@ -341,7 +394,7 @@
 <!-- ============ DEMO ============ -->
 <section id="demo">
   <div class="container reveal">
-    <p class="section-eyebrow">// section 05 — demo</p>
+    <p class="section-eyebrow">// section 07 — demo</p>
     <h2 class="section-title">What it looks like.</h2>
     <p class="section-intro">
       A VHS replay of the CLI surface — <code>list</code>, <code>up</code>, <code>secrets</code>, <code>ssh</code>, <code>down</code>. The first <code>up</code> is the slow one; subsequent boots are warm restarts.
@@ -362,10 +415,12 @@
 <!-- ============ TEND ============ -->
 <section id="lifecycle">
   <div class="container reveal">
-    <p class="section-eyebrow">// section 06 — lifecycle</p>
+    <p class="section-eyebrow">// section 08 — lifecycle</p>
     <h2 class="section-title">Tend the machine.</h2>
     <p class="section-intro">
-      Eleven commands, no manifesto. Most days you'll use the first two.
+      Eleven commands, no manifesto. Most days: <code>up</code>, ssh in, work, <code>down</code>.
+      Machines are meant to be boring — boot one, run Claude, run tests, and destroy it
+      when the state no longer deserves trust.
     </p>
 
     <div class="cmd-grid">
@@ -383,7 +438,7 @@
       </div>
       <div class="cmd-card">
         <div class="k">machine run <span class="sub">&lt;p&gt;</span></div>
-        <div class="v">Run a one-off command in the VM without opening a shell.</div>
+        <div class="v">Run a one-off command in the VM without opening a shell. stdio passes straight through, so full-screen TUIs work too — <code>machine run wallet hx</code> opens Helix to edit the project.</div>
       </div>
       <div class="cmd-card">
         <div class="k">machine down <span class="sub">&lt;p&gt;</span></div>
@@ -420,8 +475,12 @@
 <!-- ============ IDE INTEGRATION ============ -->
 <section id="ide">
   <div class="container reveal">
-    <p class="section-eyebrow">// section 07 — editors</p>
-    <h2 class="section-title">Your editor doesn't have to know it's a VM.</h2>
+    <p class="section-eyebrow">// section 09 — editors</p>
+    <h2 class="section-title">Your terminal, editor, and agents just see SSH.</h2>
+    <p class="section-intro">
+      Use VS Code Remote-SSH, Cursor, JetBrains Gateway, Emacs TRAMP, or plain <code>ssh</code>.
+      The project machine is a normal SSH host, so your tools don't need a machine plugin.
+    </p>
 
     <div class="ide-wrap">
       <div class="ide-head">
@@ -457,7 +516,7 @@
             </div>
           </div>
         </div>
-        <p class="ide-caption">Add <code>Include ~/.lima/*/ssh.config</code> to <code>~/.ssh/config</code> once; Lima maintains the per-VM configs. Cursor and JetBrains Gateway pick them up too.</p>
+        <p class="ide-caption">Add <code>Include ~/.lima/*/ssh.config</code> to <code>~/.ssh/config</code> once; Lima maintains the per-VM configs. Cursor and JetBrains Gateway pick them up too. Prefer a terminal editor? <code>machine run wallet hx</code> runs Helix (or <code>vim</code> / <code>nvim</code>) right inside the machine — no plugin, nothing editor-shaped on the host.</p>
       </div>
     </div>
   </div>
@@ -504,7 +563,7 @@
           <span class="mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
           <span class="wordmark">machine</span>
         </div>
-        <p class="foot-tag">Built by people who got tired of cleaning up after their machines.</p>
+        <p class="foot-tag">Built by people who wanted a clean Mac and dirty project machines.</p>
       </div>
       <div class="foot-col">
         <h5>// docs</h5>

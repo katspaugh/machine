@@ -655,7 +655,12 @@ def cmd_tab(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace) -> int:
     if not args.argv:
         die("usage: machine run <project> <cmd>...")
-    run(["limactl", "shell", args.project, "--", *args.argv])
+    workdir = _primary_repo_workdir(args.project)
+    cmd = ["limactl", "shell"]
+    if workdir:
+        cmd += ["--workdir", workdir]
+    cmd += [args.project, "--", *args.argv]
+    run(cmd)
     return 0
 
 
