@@ -105,7 +105,7 @@
           not a namespace.
         </p>
         <ul>
-          <li><strong>No host filesystem is mounted.</strong> There is no path from the VM to your home directory. The smoke suite asserts this on every CI run.</li>
+          <li><strong>No host filesystem is mounted.</strong> There is no path from the VM to your home directory — the base template declares <code>mounts: []</code>, and the smoke suite boots a real VM and checks that no host mounts leak.</li>
           <li><strong>One VM per project.</strong> A compromised dependency in one project cannot read another project's code or secrets — they're separate machines.</li>
           <li><strong>Keys stay on the host.</strong> Git auth and commit signing use a forwarded SSH agent: the VM can request signatures while it runs, but can never read the private key.</li>
           <li><strong>Secrets are tmpfs-only.</strong> <code>machine secrets</code> renders 1Password Environments into VM tmpfs — never to disk, gone on reboot. A fully compromised VM sees only the secrets a repo explicitly rendered, not your vault.</li>
