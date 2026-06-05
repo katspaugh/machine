@@ -11,6 +11,10 @@ by `scripts/release.sh`.
 - `machine tab` (the macOS new-tab helper). It drove Terminal.app via
   AppleScript and did not work reliably.
 
+### Fixed
+- `machine ssh` now rebuilds a stale Lima SSH master that forwards an empty
+  agent, so 1Password-backed commit signing works once the agent is available.
+
 ## [0.2.3] — 2026-06-05
 
 ### Fixed

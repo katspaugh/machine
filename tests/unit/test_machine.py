@@ -328,6 +328,52 @@ class TestPrimaryRepoWorkdir(_MachineTestCase):
         sh.assert_not_called()
 
 
+class TestAgentSelfHeal(_MachineTestCase):
+    def test_agent_has_keys_true_on_rc0(self):
+        with mock.patch.object(self.m.subprocess, "run",
+                               return_value=proc(0, stdout="key\n")):
+            self.assertTrue(self.m._agent_has_keys())
+
+    def test_agent_has_keys_false_on_rc1(self):
+        with mock.patch.object(self.m.subprocess, "run", return_value=proc(1)):
+            self.assertFalse(self.m._agent_has_keys())
+
+    def test_heal_noop_when_no_sock(self):
+        with mock.patch.object(self.m.Path, "exists", return_value=False), \
+             mock.patch.object(self.m, "_agent_has_keys", return_value=True) as keys, \
+             mock.patch.object(self.m, "lima_shell") as sh, \
+             mock.patch.object(self.m, "close_lima_ssh_master") as close:
+            self.m._heal_stale_agent_master("blog")
+        close.assert_not_called()
+        sh.assert_not_called()
+        keys.assert_not_called()
+
+    def test_heal_noop_when_host_agent_empty(self):
+        with mock.patch.object(self.m.Path, "exists", return_value=True), \
+             mock.patch.object(self.m, "_agent_has_keys", return_value=False), \
+             mock.patch.object(self.m, "lima_shell") as sh, \
+             mock.patch.object(self.m, "close_lima_ssh_master") as close:
+            self.m._heal_stale_agent_master("blog")
+        close.assert_not_called()
+        sh.assert_not_called()
+
+    def test_heal_noop_when_vm_has_keys(self):
+        with mock.patch.object(self.m.Path, "exists", return_value=True), \
+             mock.patch.object(self.m, "_agent_has_keys", return_value=True), \
+             mock.patch.object(self.m, "lima_shell", return_value=proc(0)), \
+             mock.patch.object(self.m, "close_lima_ssh_master") as close:
+            self.m._heal_stale_agent_master("blog")
+        close.assert_not_called()
+
+    def test_heal_closes_master_when_vm_empty(self):
+        with mock.patch.object(self.m.Path, "exists", return_value=True), \
+             mock.patch.object(self.m, "_agent_has_keys", return_value=True), \
+             mock.patch.object(self.m, "lima_shell", return_value=proc(1)), \
+             mock.patch.object(self.m, "close_lima_ssh_master") as close:
+            self.m._heal_stale_agent_master("blog")
+        close.assert_called_once_with("blog")
+
+
 class TestSecretsReachability(_MachineTestCase):
     def _secrets_args(self, **kw):
         defaults = dict(project="blog", repo=None, clear=False)

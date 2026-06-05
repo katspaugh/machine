@@ -192,6 +192,29 @@ def close_lima_ssh_master(vm: str) -> None:
     )
 
 
+def _agent_has_keys(env=None) -> bool:
+    """True if `ssh-add -l` lists >=1 identity (rc 0). rc 1 = no identities,
+    rc 2 = agent unreachable."""
+    r = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True, env=env)
+    return r.returncode == 0
+
+
+def _heal_stale_agent_master(name: str) -> None:
+    """Lima pins agent forwarding when its persistent SSH master is created
+    (ControlMaster auto + ControlPersist yes). If a master already exists and
+    forwards an empty agent while the host's selected agent DOES have keys,
+    close it so the next shell rebuilds the master with the live agent. No-op
+    when there is no master yet, or when the host agent is itself empty (so a
+    legitimately keyless setup is never thrashed)."""
+    if not (Path.home() / ".lima" / name / "ssh.sock").exists():
+        return
+    if not _agent_has_keys():
+        return
+    if lima_shell(name, ["ssh-add", "-l"],
+                  capture_output=True, text=True).returncode != 0:
+        close_lima_ssh_master(name)
+
+
 def git_config(key: str) -> str:
     return subprocess.run(
         ["git", "config", "--global", key], capture_output=True, text=True
@@ -565,6 +588,7 @@ def _primary_repo_workdir(name: str) -> str | None:
 
 def cmd_ssh(args: argparse.Namespace) -> int:
     name = args.project
+    _heal_stale_agent_master(name)
     workdir = _primary_repo_workdir(name)
     cmd = ["limactl", "shell"]
     if workdir:
