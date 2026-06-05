@@ -505,6 +505,13 @@ def cmd_up(args: argparse.Namespace) -> int:
     # Blocks until the provisioning probe passes (see templates/base.yaml).
     run(["limactl", "start", name])
 
+    # Provisioning may have `chsh`'d the login shell (e.g. golden image bakes
+    # zsh, then base.sh sets the project's configured shell). The SSH master
+    # opened during `start` predates that change and stays pinned to the old
+    # shell, so `machine ssh` would reuse it and land in the wrong shell. Close
+    # it now to force the next shell to pick up the current login shell.
+    close_lima_ssh_master(name)
+
     warnings = []
     for url in urls:
         warning = clone_repo(name, url)

@@ -1,6 +1,14 @@
 # Installed by `machine` provisioning. Edit files/zsh/zshrc and re-provision.
 # Pure-zsh config — no external prompt frameworks or plugin managers.
 
+# --- PATH -------------------------------------------------------------------
+# zsh does not read ~/.profile, so the user-bin entries that `.profile` adds
+# for bash/sh logins (and that fish sets too) must be set here as well —
+# otherwise tools installed under ~/.local/bin (e.g. claude) aren't found.
+# typeset -U keeps PATH de-duplicated if this is sourced more than once.
+typeset -U path
+path=("$HOME/.local/bin" "$HOME/bin" $path)
+
 # --- History ----------------------------------------------------------------
 HISTFILE=$HOME/.zsh_history
 HISTSIZE=50000

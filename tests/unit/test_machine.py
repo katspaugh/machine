@@ -275,6 +275,26 @@ class TestCloneWarnings(_MachineTestCase):
         self.assertIn("  deps install failed for blog — re-run inside the VM", out)
         self.assertNotIn("✓", out)
 
+    def test_cmd_up_closes_ssh_master_after_provisioning(self):
+        # Provisioning (`limactl start`) may `chsh` the login shell; the SSH
+        # master opened during start stays pinned to the old shell, so it must
+        # be closed *after* start or `machine ssh` reuses the wrong shell.
+        mgr = mock.Mock()
+        mgr.run.return_value = proc(0)
+        with mock.patch.object(self.m, "close_lima_ssh_master", mgr.close), \
+             mock.patch.object(self.m, "verify_repos_reachable"), \
+             mock.patch.object(self.m, "vm_exists", return_value=True), \
+             mock.patch.object(self.m, "run", mgr.run), \
+             mock.patch.object(self.m, "clone_repo", return_value=None), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.m.cmd_up(argparse.Namespace(project="blog"))
+        names = [c[0] for c in mgr.mock_calls]
+        start_idx = next(
+            i for i, c in enumerate(mgr.mock_calls)
+            if c[0] == "run" and list(c[1][0][:2]) == ["limactl", "start"]
+        )
+        self.assertIn("close", names[start_idx:])
+
 
 class TestProjectFromPsArgs(_MachineTestCase):
     def test_ssh_form_with_full_limactl_path(self):
