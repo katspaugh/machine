@@ -373,6 +373,17 @@ class TestAgentSelfHeal(_MachineTestCase):
             self.m._heal_stale_agent_master("blog")
         close.assert_called_once_with("blog")
 
+    def test_heal_closes_master_when_probe_times_out(self):
+        with mock.patch.object(self.m.Path, "exists", return_value=True), \
+             mock.patch.object(self.m, "_agent_has_keys", return_value=True), \
+             mock.patch.object(
+                 self.m, "lima_shell",
+                 side_effect=self.m.subprocess.TimeoutExpired(
+                     cmd="ssh-add", timeout=5)), \
+             mock.patch.object(self.m, "close_lima_ssh_master") as close:
+            self.m._heal_stale_agent_master("blog")
+        close.assert_called_once_with("blog")
+
 
 class TestSecretsReachability(_MachineTestCase):
     def _secrets_args(self, **kw):

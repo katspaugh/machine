@@ -192,7 +192,7 @@ def close_lima_ssh_master(vm: str) -> None:
     )
 
 
-def _agent_has_keys(env=None) -> bool:
+def _agent_has_keys(env: dict[str, str] | None = None) -> bool:
     """True if `ssh-add -l` lists >=1 identity (rc 0). rc 1 = no identities,
     rc 2 = agent unreachable."""
     r = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True, env=env)
@@ -210,8 +210,13 @@ def _heal_stale_agent_master(name: str) -> None:
         return
     if not _agent_has_keys():
         return
-    if lima_shell(name, ["ssh-add", "-l"],
-                  capture_output=True, text=True).returncode != 0:
+    try:
+        probe = lima_shell(name, ["ssh-add", "-l"],
+                           capture_output=True, text=True, timeout=5)
+        vm_has_keys = probe.returncode == 0
+    except subprocess.TimeoutExpired:
+        vm_has_keys = False  # wedged master — rebuild it
+    if not vm_has_keys:
         close_lima_ssh_master(name)
 
 
