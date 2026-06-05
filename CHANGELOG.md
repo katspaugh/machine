@@ -7,6 +7,16 @@ by `scripts/release.sh`.
 
 ## [Unreleased]
 
+### Fixed
+- `machine ssh` lands in the project's configured login shell again. The SSH
+  ControlMaster opened during `machine up` provisioning stayed pinned to the
+  pre-`chsh` shell (the golden image bakes zsh before `base.sh` sets the
+  project's shell), so sessions reused the wrong shell. `machine up` now
+  closes the master after provisioning.
+- Provisioned zsh config adds `~/.local/bin` and `~/bin` to `PATH`. zsh does
+  not read `~/.profile`, where bash/sh get those entries, so tools installed
+  there (e.g. `claude`) were not found under `default_shell = "zsh"`.
+
 ## [0.2.2] — 2026-06-04
 
 ### Added
