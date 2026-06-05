@@ -338,6 +338,26 @@ class TestAgentSelfHeal(_MachineTestCase):
         with mock.patch.object(self.m.subprocess, "run", return_value=proc(1)):
             self.assertFalse(self.m._agent_has_keys())
 
+    def test_agent_has_keys_false_when_probe_times_out(self):
+        # A wedged/locked host agent (e.g. a locked 1Password) accepts the
+        # socket connection but never answers `ssh-add -l`. Treat the timeout
+        # as "no keys" so the heal step no-ops instead of hanging machine ssh.
+        with mock.patch.object(
+                self.m.subprocess, "run",
+                side_effect=self.m.subprocess.TimeoutExpired(
+                    cmd="ssh-add", timeout=5)):
+            self.assertFalse(self.m._agent_has_keys())
+
+    def test_agent_has_keys_probe_is_time_boxed(self):
+        # Guards against reintroducing the indefinite hang: the host probe
+        # MUST pass a finite timeout to subprocess.run.
+        with mock.patch.object(self.m.subprocess, "run",
+                               return_value=proc(0)) as run:
+            self.m._agent_has_keys()
+        timeout = run.call_args.kwargs.get("timeout")
+        self.assertIsNotNone(timeout, "ssh-add -l probe must set a timeout")
+        self.assertGreater(timeout, 0)
+
     def test_heal_noop_when_no_sock(self):
         with mock.patch.object(self.m.Path, "exists", return_value=False), \
              mock.patch.object(self.m, "_agent_has_keys", return_value=True) as keys, \

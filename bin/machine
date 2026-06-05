@@ -194,8 +194,14 @@ def close_lima_ssh_master(vm: str) -> None:
 
 def _agent_has_keys(env: dict[str, str] | None = None) -> bool:
     """True if `ssh-add -l` lists >=1 identity (rc 0). rc 1 = no identities,
-    rc 2 = agent unreachable."""
-    r = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True, env=env)
+    rc 2 = agent unreachable. A wedged/locked agent (e.g. a locked 1Password)
+    accepts the socket connection but never answers, so the probe is time-boxed
+    and a timeout counts as "no keys" — heal then no-ops instead of hanging."""
+    try:
+        r = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True,
+                           env=env, timeout=5)
+    except subprocess.TimeoutExpired:
+        return False
     return r.returncode == 0
 
 

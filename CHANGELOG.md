@@ -15,6 +15,10 @@ by `scripts/release.sh`.
 - `machine ssh` and `machine claude` now rebuild a stale Lima SSH master that
   forwards an empty agent, so 1Password-backed commit signing works once the
   agent is available.
+- The host-side `ssh-add -l` agent probe is now time-boxed (5s). A wedged or
+  locked 1Password SSH agent accepts the socket connection but never answers,
+  which previously hung `machine ssh`/`machine claude` indefinitely at the
+  self-heal step; the timeout now counts as "no keys" so the command proceeds.
 
 ## [0.2.3] — 2026-06-05
 
