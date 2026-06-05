@@ -12,8 +12,9 @@ by `scripts/release.sh`.
   AppleScript and did not work reliably.
 
 ### Fixed
-- `machine ssh` now rebuilds a stale Lima SSH master that forwards an empty
-  agent, so 1Password-backed commit signing works once the agent is available.
+- `machine ssh` and `machine claude` now rebuild a stale Lima SSH master that
+  forwards an empty agent, so 1Password-backed commit signing works once the
+  agent is available.
 
 ## [0.2.3] — 2026-06-05
 

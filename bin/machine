@@ -604,6 +604,7 @@ def cmd_ssh(args: argparse.Namespace) -> int:
 
 def cmd_claude(args: argparse.Namespace) -> int:
     name = args.project
+    _heal_stale_agent_master(name)
     workdir = _primary_repo_workdir(name)
     cmd = ["limactl", "shell"]
     if workdir:

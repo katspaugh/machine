@@ -385,6 +385,23 @@ class TestAgentSelfHeal(_MachineTestCase):
         close.assert_called_once_with("blog")
 
 
+class TestCommandsSelfHeal(_MachineTestCase):
+    def test_cmd_ssh_heals_before_exec(self):
+        with mock.patch.object(self.m, "_heal_stale_agent_master") as heal, \
+             mock.patch.object(self.m, "_primary_repo_workdir", return_value=None), \
+             mock.patch.object(self.m.os, "execvp"):
+            self.m.cmd_ssh(argparse.Namespace(project="blog"))
+        heal.assert_called_once_with("blog")
+
+    def test_cmd_claude_heals_before_exec(self):
+        with mock.patch.object(self.m, "_heal_stale_agent_master") as heal, \
+             mock.patch.object(self.m, "_primary_repo_workdir", return_value=None), \
+             mock.patch.object(self.m.os, "execvp"), \
+             contextlib.redirect_stderr(io.StringIO()):
+            self.m.cmd_claude(argparse.Namespace(project="blog"))
+        heal.assert_called_once_with("blog")
+
+
 class TestSecretsReachability(_MachineTestCase):
     def _secrets_args(self, **kw):
         defaults = dict(project="blog", repo=None, clear=False)
