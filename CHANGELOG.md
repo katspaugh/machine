@@ -7,6 +7,10 @@ by `scripts/release.sh`.
 
 ## [Unreleased]
 
+### Removed
+- `machine tab` (the macOS new-tab helper). It drove Terminal.app via
+  AppleScript and did not work reliably.
+
 ## [0.2.3] — 2026-06-05
 
 ### Fixed
