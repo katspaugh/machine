@@ -7,6 +7,8 @@ by `scripts/release.sh`.
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-06-05
+
 ### Fixed
 - `machine ssh` lands in the project's configured login shell again. The SSH
   ControlMaster opened during `machine up` provisioning stayed pinned to the
@@ -67,7 +69,8 @@ by `scripts/release.sh`.
 - The Tauri GUI, its Homebrew cask, and the DMG release workflow — `machine`
   is now CLI-only.
 
-[Unreleased]: https://github.com/katspaugh/machine/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/katspaugh/machine/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/katspaugh/machine/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/katspaugh/machine/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/katspaugh/machine/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/katspaugh/machine/compare/v0.1.6...v0.2.0
