@@ -33,6 +33,15 @@ zle -N down-line-or-beginning-search
 bindkey '^[[A' up-line-or-beginning-search
 bindkey '^[[B' down-line-or-beginning-search
 
+# --- Fish-like as-you-type autosuggestions (grey, from history) ------------
+# Packaged as zsh-autosuggestions on Ubuntu. → accepts one char (forward-char
+# is an accept widget by default); Ctrl-Space accepts the whole suggestion.
+if [[ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]]; then
+  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+  ZSH_AUTOSUGGEST_STRATEGY=(history)
+  bindkey '^ ' autosuggest-accept
+fi
+
 # --- Prompt: user@host  cwd  (git-branch)  $ -------------------------------
 autoload -Uz vcs_info
 zstyle ':vcs_info:git:*' formats ' (%b)'

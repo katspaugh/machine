@@ -39,7 +39,8 @@ add_repo nodesource https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
 # still fails fast.
 apt-get update -qq || true
 apt-get install -y --no-install-recommends \
-  build-essential ca-certificates curl gnupg jq xz-utils unzip git zsh fish \
+  build-essential ca-certificates curl gnupg jq xz-utils unzip git zsh \
+  zsh-autosuggestions \
   ripgrep fd-find tmux less file python3 direnv \
   docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
   gh nodejs
@@ -68,6 +69,6 @@ refresh tsc npm install -g typescript typescript-language-server @openai/codex
 # --- Default login shell ------------------------------------------------------
 TARGET_SHELL="{{.Param.shell}}"
 case "$TARGET_SHELL" in
-  zsh|fish|bash) chsh -s "/usr/bin/$TARGET_SHELL" "$LIMA_USER" || true ;;
+  zsh|bash) chsh -s "/usr/bin/$TARGET_SHELL" "$LIMA_USER" || true ;;
   *) echo "unknown shell: $TARGET_SHELL" >&2; exit 1 ;;
 esac

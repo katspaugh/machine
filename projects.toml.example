@@ -2,19 +2,19 @@
 #
 # Schema:
 #   default_profile = "<name>"        # optional. Used when a project omits `profiles`.
-#   default_shell   = "zsh"           # optional. zsh|fish|bash. Used when a project omits `shell`.
+#   default_shell   = "zsh"           # optional. zsh|bash. Used when a project omits `shell`.
 #
 #   [<project-name>]                  # becomes the Lima VM name (a-z, 0-9, hyphen).
 #   repos    = ["git@github.com:org/repo.git", ...]
 #   profiles = ["cypress", ...]       # optional. Stacks on top of the base VM.
-#   shell    = "fish"                 # optional. zsh|fish|bash. Login shell inside the VM.
+#   shell    = "bash"                 # optional. zsh|bash. Login shell inside the VM (default zsh).
 #
 # Each profile is a templates/<name>.yaml + provision/<name>.sh pair.
 # Each repo is cloned into ~/code/<basename(<git-url>)>/ inside the VM.
 # With multiple repos, the first is the "primary" — `machine ssh <name>` opens at its dir.
 
 # default_profile = "cypress"      # off by default: projects without `profiles` get the base VM only.
-# default_shell = "zsh"             # fish and bash are also pre-installed in every VM.
+# default_shell = "zsh"             # bash is also pre-installed in every VM.
 
 # Single-repo project; base VM only (no profiles).
 # [blog]

@@ -45,7 +45,7 @@ class _MachineTestCase(unittest.TestCase):
             'repos = ["git@github.com:me/blog.git"]\n'
             "[wallet]\n"
             'profiles = ["cypress", "supabase-fly"]\n'
-            'shell = "fish"\n'
+            'shell = "bash"\n'
             'repos = ["git@github.com:me/a.git", "git@github.com:me/b.git"]\n'
             "[bare]\n"
             "profiles = []\n"
@@ -83,7 +83,7 @@ class TestHelpers(_MachineTestCase):
 
     def test_project_shell(self):
         self.assertEqual(self.m.project_shell("blog"), "zsh")
-        self.assertEqual(self.m.project_shell("wallet"), "fish")
+        self.assertEqual(self.m.project_shell("wallet"), "bash")
 
     def test_param_set_args_quotes_values(self):
         args = self.m.param_set_args(

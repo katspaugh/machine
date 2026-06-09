@@ -202,7 +202,6 @@ machine/
 │   └── supabase-fly.sh
 ├── files/                  # data placed into each VM via `mode: data`
 │   ├── zsh/                #   ~/.zshrc
-│   ├── fish/               #   ~/.config/fish/config.fish
 │   ├── profile.d/          #   /etc/profile.d snippets (PATH, direnv)
 │   ├── direnv/             #   `use op_env` helper for 1Password env injection
 │   └── ssh/                #   pre-seeded known_hosts

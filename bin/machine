@@ -130,8 +130,8 @@ def project_shell(name: str) -> str:
     shell = project.get("shell") if isinstance(project, dict) else None
     if shell is None:
         shell = cfg.get("default_shell", "zsh")
-    if shell not in ("zsh", "fish", "bash"):
-        die(f"invalid shell '{shell}' for project '{name}' (use zsh|fish|bash)")
+    if shell not in ("zsh", "bash"):
+        die(f"invalid shell '{shell}' for project '{name}' (use zsh|bash)")
     return shell  # type: ignore[return-value]
 
 

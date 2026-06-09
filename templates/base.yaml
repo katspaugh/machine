@@ -50,11 +50,6 @@ provision:
   owner: "{{.User}}:{{.User}}"
   permissions: 644
 - mode: data
-  file: files/fish/config.fish
-  path: "{{.Home}}/.config/fish/config.fish"
-  owner: "{{.User}}:{{.User}}"
-  permissions: 644
-- mode: data
   file: files/direnv/op_env.sh
   path: "{{.Home}}/.config/direnv/direnvrc"
   owner: "{{.User}}:{{.User}}"

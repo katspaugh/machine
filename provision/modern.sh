@@ -1,6 +1,6 @@
 #!/bin/bash
-# Modern CLI tools: bat, delta, fzf, lazygit, helix. The base zshrc/config.fish
-# already carry guarded integrations (cat->bat, fzf keybindings) that light up
+# Modern CLI tools: bat, delta, fzf, lazygit, helix. The base zshrc
+# already carries guarded integrations (cat->bat, fzf keybindings) that light up
 # when these are installed. Idempotent; runs on every boot.
 # {{.User}}/{{.Home}} are Lima guest-template variables.
 set -eu -o pipefail
