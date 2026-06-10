@@ -1,4 +1,4 @@
-# machine — one isolated Lima VM per project
+# machine — one ready-to-work dev VM per project
 
 [![CI](https://github.com/katspaugh/machine/actions/workflows/ci.yml/badge.svg)](https://github.com/katspaugh/machine/actions/workflows/ci.yml)
 [![Smoke](https://github.com/katspaugh/machine/actions/workflows/smoke.yml/badge.svg)](https://github.com/katspaugh/machine/actions/workflows/smoke.yml)
@@ -7,7 +7,7 @@
 
 ![machine](assets/banner.svg)
 
-A reproducible Lima VM per GitHub project, with Docker, Node, agent CLIs (Claude Code, Codex), GitHub CLI (`gh`), signed git, and tool profiles (e.g. Cypress, Playwright, Supabase + flyctl, modern CLI tools) you opt into per project. Each project lives in its own VM so they can't see each other and the host filesystem isn't mounted.
+Isolated VMs are table stakes — an empty sandbox still costs you an afternoon before an agent can do anything in it. `machine` boots each GitHub project a Lima VM that's ready to work: Docker, Node, agent CLIs (Claude Code, Codex), GitHub CLI (`gh`), signed git, and opt-in tool profiles (Cypress, Playwright, Supabase + flyctl, modern CLI tools). No host filesystem mount, no cross-project bleed, and your private keys never leave the host.
 
 Claude Code comes pre-installed with the official marketplace and these plugins enabled: `frontend-design`, `superpowers`, `github`, `typescript-lsp`, `security-guidance`, `commit-commands`, `chrome-devtools-mcp`, `supabase`. Permission `defaultMode` is set to `auto`.
 
@@ -15,9 +15,13 @@ Claude Code comes pre-installed with the official marketplace and these plugins 
 
 AI coding agents are most useful with full autonomy — and full autonomy on
 your host means access to your keys, your other projects, and everything
-`npm install` drags in. `machine` gives each project a disposable VM where
-"yes to everything" is a safe answer: no host filesystem mount, keys stay on
-the host behind a forwarded agent, secrets live in tmpfs.
+`npm install` drags in. A bare sandbox fixes the safety problem and creates a
+setup problem. `machine` solves both: each project gets a disposable VM that
+comes up already provisioned for agent work — toolchain installed, git signing
+wired through the forwarded SSH agent (keys stay on the host; the VM only ever
+sees signatures), secrets rendered into tmpfs and gone on reboot. "Yes to
+everything" is a safe answer, and there's no morning of setup before it's a
+useful one.
 
 Read the guide: [Sandboxing Claude Code](https://runmachine.dev/sandboxing-claude-code/).
 

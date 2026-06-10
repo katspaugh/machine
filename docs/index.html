@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>machine — one disposable Linux machine per project</title>
-  <meta name="description" content="Host-minimal development environments for the Claude Code / Codex era. machine keeps your Mac clean by running each project in its own disposable Linux VM. No host filesystem mount. No cross-project bleed." />
+  <title>machine — one ready-to-work Linux machine per project</title>
+  <meta name="description" content="A full dev environment per project, not just a sandbox: agents preinstalled, commits signed, private keys never leave your Mac. machine boots ready-to-work Linux VMs where 'yes to everything' is safe." />
 
   <link rel="canonical" href="https://runmachine.dev/" />
   <meta property="og:url" content="https://runmachine.dev/" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="machine — one disposable Linux machine per project" />
-  <meta property="og:description" content="Host-minimal development environments for the Claude Code / Codex era. machine keeps your Mac clean by running each project in its own disposable Linux VM. No host filesystem mount. No cross-project bleed." />
+  <meta property="og:title" content="machine — one ready-to-work Linux machine per project" />
+  <meta property="og:description" content="A full dev environment per project, not just a sandbox: agents preinstalled, commits signed, private keys never leave your Mac. machine boots ready-to-work Linux VMs where 'yes to everything' is safe." />
   <meta property="og:image" content="https://runmachine.dev/assets/banner.svg" />
-  <meta property="og:image:alt" content="machine — one disposable Linux machine per project" />
+  <meta property="og:image:alt" content="machine — one ready-to-work Linux machine per project" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content="https://runmachine.dev/assets/banner.svg" />
 
@@ -53,13 +53,14 @@
       <div class="hero-copy">
         <p class="hero-eyebrow">// never run <code>npm install</code> on your machine again</p>
         <h1>
-          One disposable Linux <span class="machine-2">machine</span> per project.
+          One ready-to-work Linux <span class="machine-2">machine</span> per project.
         </h1>
         <p class="hero-sub">
-          machine keeps your Mac clean by running each project in its own Lima VM.
-          Devtools, databases, browsers, build caches, secrets, and coding agents
-          stay inside the project machine — not on your host.
-          New laptop? <code>brew install machine</code>, connect your SSH agent, and get back to work.
+          Plenty of tools can boot you an isolated VM. machine boots one your agent
+          can actually work in: Docker, Node, <code>gh</code>, signed git, Claude Code with
+          plugins — provisioned from version-controlled templates, disposable when it
+          gets weird. Your private keys never enter the VM; secrets live in tmpfs.
+          Saying yes to everything is finally a safe answer.
         </p>
         <div class="hero-ctas">
           <div class="installer hero-installer">
@@ -243,27 +244,27 @@
     <div class="why-grid why-grid-4">
       <article class="why-card">
         <div class="why-num">01</div>
+        <h3>Agent-ready by design.</h3>
+        <p>Claude Code and Codex ship in the base image, wired to the official Claude marketplace and a curated plugin set. They run inside the same Linux environment as the repo. Permission auto-mode is on by default — safe by construction, because there's nothing of yours in there to lose.</p>
+        <code>machine claude blog</code>
+      </article>
+      <article class="why-card">
+        <div class="why-num">02</div>
+        <h3>Each project gets a real boundary.</h3>
+        <p>One VM per project. No host filesystem mount. No shared project volumes. Your SSH agent is forwarded in for auth and signing — private keys never leave the host. The blast radius of a bad dependency or over-eager agent is one disposable machine.</p>
+        <code>machine up blog</code>
+      </article>
+      <article class="why-card">
+        <div class="why-num">03</div>
         <h3>Your host stays clean.</h3>
         <p>No project runtimes, databases, browser deps, global CLIs, package caches, or mystery setup on your Mac. Install machine once; put the mess in project VMs.</p>
         <code>brew install katspaugh/machine/machine</code>
       </article>
       <article class="why-card">
-        <div class="why-num">02</div>
-        <h3>Each project gets a real boundary.</h3>
-        <p>One VM per project. No host filesystem mount. No shared project volumes. The blast radius of a bad dependency or over-eager agent is one disposable machine.</p>
-        <code>machine up blog</code>
-      </article>
-      <article class="why-card">
-        <div class="why-num">03</div>
+        <div class="why-num">04</div>
         <h3>Reproducible when it matters.</h3>
         <p>Machines are built from version-controlled Lima templates and provision scripts. Destroy one, rebuild it, or bring the same setup to a new laptop.</p>
         <code>machine destroy blog &amp;&amp; machine up blog</code>
-      </article>
-      <article class="why-card">
-        <div class="why-num">04</div>
-        <h3>Agent-ready by design.</h3>
-        <p>Claude Code and Codex ship in the base image, wired to the official Claude marketplace and a curated plugin set. They run inside the same Linux environment as the repo — your SSH agent is forwarded; your private keys stay on the host.</p>
-        <code>machine claude blog</code>
       </article>
     </div>
   </div>

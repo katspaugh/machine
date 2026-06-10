@@ -34,7 +34,7 @@
       <tspan fill="url(#glow)">~/</tspan>machine
     </text>
     <text x="48" y="94" fill="#94a3b8" font-size="14">
-      one isolated Lima VM per project · docker · node · agents · signed git
+      one ready-to-work VM per project · docker · node · agents · signed git
     </text>
   </g>
 
