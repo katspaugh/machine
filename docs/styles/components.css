@@ -373,7 +373,7 @@ section + section { padding-top: 0; }
   margin-bottom: var(--s-6);
   line-height: 1.5;
 }
-.hero-sub .nb { white-space: nowrap; }
+.nb { white-space: nowrap; }
 .hero-sub code {
   color: var(--fg);
   background: var(--surface);
@@ -473,6 +473,18 @@ section + section { padding-top: 0; }
   background: rgba(227,122,180,.07);
   border: 1px solid rgba(227,122,180,.22);
   padding: 3px 8px;
+  border-radius: 4px;
+}
+/* inline code in prose (tool name, paths) — chip like .hero-sub code */
+.section-intro code,
+.why-card p code {
+  display: inline;
+  margin-top: 0;
+  font-size: 0.9em;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1px 5px;
   border-radius: 4px;
 }
 
