@@ -539,6 +539,92 @@ class TestSecretsReachability(_MachineTestCase):
         self.assertIn("cannot reach VM 'blog'", err.getvalue())
 
 
+class TestErrorHandling(_MachineTestCase):
+    """First-run failure paths must die with a `machine: ...` message, never
+    a raw traceback or a silent nonzero exit."""
+
+    def _projects_path(self) -> Path:
+        return self.m.PROJECTS_FILE
+
+    def test_load_projects_invalid_toml_dies_with_message(self):
+        self._projects_path().write_text("[blog\nrepos = oops")
+        with self.assertRaises(SystemExit), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            self.m.load_projects()
+        self.assertIn("invalid TOML", err.getvalue())
+        self.assertIn(str(self._projects_path()), err.getvalue())
+
+    def test_project_shell_invalid_toml_dies_with_message(self):
+        self._projects_path().write_text("[blog\nrepos = oops")
+        with self.assertRaises(SystemExit), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            self.m.project_shell("blog")
+        self.assertIn("invalid TOML", err.getvalue())
+
+    def test_load_projects_unreadable_file_dies_with_message(self):
+        path = self._projects_path()
+        path.chmod(0)
+        # tearDown removes the tempdir first; restore the mode only if the
+        # file is still there.
+        self.addCleanup(lambda: path.exists() and path.chmod(0o644))
+        if os.access(path, os.R_OK):  # pragma: no cover — root ignores modes
+            self.skipTest("running as root; cannot make file unreadable")
+        with self.assertRaises(SystemExit), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            self.m.load_projects()
+        self.assertIn("cannot read", err.getvalue())
+
+    def test_main_reports_missing_limactl(self):
+        # `machine down` hits vm_exists() first; without limactl installed
+        # subprocess.run raises FileNotFoundError, which used to escape main()
+        # as a traceback.
+        missing = FileNotFoundError(2, "No such file or directory")
+        missing.filename = "limactl"
+        with mock.patch.object(self.m.subprocess, "run", side_effect=missing), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            rc = self.m.main(["down", "blog"])
+        self.assertNotEqual(rc, 0)
+        self.assertIn("limactl", err.getvalue())
+        self.assertIn("brew install lima", err.getvalue())
+
+    def test_main_reports_other_missing_binary_without_lima_hint(self):
+        missing = FileNotFoundError(2, "No such file or directory")
+        missing.filename = "git"
+        with mock.patch.object(self.m.subprocess, "run", side_effect=missing), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            rc = self.m.main(["doctor"])
+        self.assertNotEqual(rc, 0)
+        self.assertIn("git", err.getvalue())
+        self.assertNotIn("brew install lima", err.getvalue())
+
+    def test_read_signing_key_op_failure_dies_with_message(self):
+        # `op read` failing (locked vault, bad ref) used to raise
+        # CalledProcessError, which main() swallowed into a bare exit code.
+        env = {"OP_SIGNING_KEY_REF": "op://vault/key/public"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(self.m.shutil, "which", return_value="/usr/bin/op"), \
+             mock.patch.object(self.m.subprocess, "run",
+                               return_value=proc(1, stderr="not signed in")), \
+             self.assertRaises(SystemExit), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            self.m.read_signing_key()
+        self.assertIn("op read", err.getvalue())
+        self.assertIn("not signed in", err.getvalue())
+
+    def test_cmd_destroy_eof_aborts_cleanly(self):
+        # Closed stdin (piped/cron use without -y) must abort like an
+        # explicit "n", not crash with EOFError.
+        out = io.StringIO()
+        with mock.patch("builtins.input", side_effect=EOFError), \
+             contextlib.redirect_stdout(out):
+            rc = self.m.cmd_destroy(
+                argparse.Namespace(project="blog", force=False))
+        self.assertEqual(rc, 1)
+        self.assertIn("aborted", out.getvalue())
+
+
 class TestSyncOneEnv(_MachineTestCase):
     def test_op_failure_returns_false_and_skips_vm(self):
         with mock.patch.object(self.m.subprocess, "run",
