@@ -26,7 +26,26 @@ no morning of setup before it's a useful answer.
 
 Read the guide: [Sandboxing Claude Code](https://runmachine.dev/sandboxing-claude-code/).
 
+### Claude Code already has a sandbox — why a VM?
+
+Claude Code's built-in sandbox wraps individual commands in OS-level rules on
+your host (Seatbelt on macOS, bubblewrap on Linux): writes and network are
+allow-listed, reads mostly aren't, and it's still your kernel, your user
+account, and your real working copy. Anything a command legitimately needs
+outside the rules lands you back at permission prompts — or at "run
+unsandboxed". A VM moves the whole session onto a separate machine instead of
+fencing commands on yours, and solves the environment problem (toolchain,
+browsers, Docker) in the same move. The two compose: the built-in sandbox
+keeps working inside the VM as defense-in-depth. Full comparison — including
+devcontainers, Tart, and Apple's `container` — in the
+[sandboxing guide](https://runmachine.dev/sandboxing-claude-code/#comparison).
+
 ## Install
+
+`machine` runs on **macOS 13 (Ventura) or newer — Apple Silicon or Intel**.
+The VMs boot through Lima's `vz` driver (Apple's Virtualization framework), so
+macOS is the only supported host; Linux and Windows hosts won't work. Guests
+are Ubuntu 24.04, arm64 or amd64 to match your CPU.
 
 ```sh
 brew install katspaugh/machine/machine
@@ -56,6 +75,7 @@ The flake pins its own Lima (≥ 2.0) and Python from nixpkgs-unstable. Pin a re
 
 ## Prerequisites
 
+- A Mac on macOS 13 or newer (Apple Silicon or Intel) — see [Install](#install).
 - An SSH key on the host, served by an agent the VM can forward. Either:
   - **macOS Keychain** (default): `ssh-add --apple-use-keychain ~/.ssh/id_ed25519`
   - **1Password**: enable 1Password → Settings → Developer → *Use the SSH agent* — `machine` detects the agent socket and forwards it automatically (see [SSH agent](#ssh-agent) below).
@@ -377,6 +397,56 @@ No host filesystem is mounted. Each project gets its own VM, so a compromise of 
 | `PROJECTS_FILE` | `<repo>/projects.toml` in dev mode; `~/.config/machine/projects.toml` under Homebrew |
 | `MACHINE_CONFIG_DIR` | config-directory location (`~/.config/machine` by default) |
 | `MACHINE_STATE_DIR` | generated-state location (`<repo>/.build` in dev mode; `~/.local/state/machine` under Homebrew) |
+
+## Troubleshooting
+
+Run `machine doctor` first — it catches most of these before a VM is involved.
+
+**`machine up` fails before the VM boots with a template error** (`unknown
+field`, `failed to unmarshal`, or similar). You're on Lima 1.x — `machine`
+needs Lima ≥ 2.0 (`base:` template composition and `mode: data` provisioning
+don't exist in 1.x). Check `limactl --version`, then `brew upgrade lima`.
+
+**`git clone` / `git push` inside the VM fails with `Permission denied
+(publickey)`.** The forwarded agent has no usable keys. On the host, `ssh-add
+-l` must list at least one key: for the Keychain agent run `ssh-add
+--apple-use-keychain ~/.ssh/id_ed25519`; for 1Password, unlock the app (a
+locked 1Password agent serves nothing). If the agent was empty or locked when
+the VM connection was first opened, just re-run `machine ssh` — it detects the
+stale connection and rebuilds it against the live agent.
+
+**Pushes work but commits show "Unverified" on GitHub.** GitHub registers SSH
+keys for *authentication* and *signing* separately. Add the same public key a
+second time at Settings → SSH and GPG keys → New SSH key, with Key type:
+**Signing**. (The reverse confusion — key added only as Signing — makes
+signing work and `git clone` fail.)
+
+**`git commit` fails with `agent refused operation`.** The agent declined to
+sign — with 1Password that means the app is locked or you dismissed the Touch
+ID prompt. Unlock 1Password and expect one Touch ID prompt per signature.
+
+**Provisioning fails or `machine up` times out.** Read the cloud-init log:
+`limactl shell <vm> sudo tail -100 /var/log/cloud-init-output.log`. Then
+re-run `machine up <p>` — provisioning is idempotent, and transient apt or
+network failures usually clear on the second pass.
+
+**The VM hangs at boot after your host disk filled up.** A full host disk can
+leave the guest's ext4 filesystem flagged with errors, and the VM never comes
+up. Free host space first; then `machine destroy <p> && machine up <p>` — the
+cached base disk makes the rebuild fast. If you need data out of the old VM,
+its disk image (under `~/.lima/<p>/`) can be repaired offline with `e2fsck`
+before you destroy it.
+
+**Changed `GIT_NAME` / `GIT_EMAIL` / signing key, but the VM still uses the
+old one.** Identity flows in as Lima params, fixed when the VM is created.
+`machine destroy <p> && machine up <p>` to re-create with the new values.
+
+**`machine secrets` fails to read an Environment.** It needs the `op` CLI
+(`brew install 1password-cli`) and the desktop-app integration enabled:
+1Password → Settings → Developer → *Integrate with 1Password CLI*.
+
+**1Password's agent is enabled but you want the Keychain agent.** Point
+`ONEPASS_SOCK` at a non-socket path: `ONEPASS_SOCK=/dev/null machine up <p>`.
 
 ## Contributing
 

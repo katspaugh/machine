@@ -395,6 +395,13 @@ section + section { padding-top: 0; }
   width: 100%;
   max-width: 520px;
 }
+.hero-platform {
+  width: 100%;
+  margin-top: var(--s-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-mono-s);
+  color: var(--dim);
+}
 
 .scroll-hint {
   position: absolute;

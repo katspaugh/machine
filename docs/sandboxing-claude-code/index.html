@@ -132,6 +132,26 @@
 
       <section id="comparison">
         <h2><span class="num">04</span>Honest comparison</h2>
+
+        <h3>Doesn't Claude Code already have a sandbox?</h3>
+        <p>
+          Yes — and it's good at what it does. Built-in sandboxing wraps each shell
+          command in OS-level rules (Seatbelt on macOS, bubblewrap on Linux, plus a
+          network proxy): writes are limited to the workspace, network to approved
+          hosts. Three things it doesn't change:
+        </p>
+        <ul>
+          <li><strong>It's still your host.</strong> Same kernel, same user account, your real working copy. Filesystem reads are broadly allowed with carve-outs, so anything you didn't think to deny is readable — and the escape surface is the OS sandbox itself, not a hypervisor.</li>
+          <li><strong>The prompt loop survives.</strong> Commands that legitimately need network access or writes outside the workspace still stop and ask — and the well-worn failure mode is approving "run unsandboxed" until the sandbox is decoration. The flag that skips it all is one keystroke away, on your host.</li>
+          <li><strong>It does nothing for the environment.</strong> Your Mac still accumulates the runtimes, browsers, and Docker installs, and there's no boundary between projects.</li>
+        </ul>
+        <p>
+          A VM answers a different question: instead of fencing commands on your
+          machine, give the agent a machine with nothing of yours on it. Inside it,
+          "yes to everything" is safe by construction — and the two compose, since
+          Claude Code's sandbox keeps working inside the VM as defense-in-depth.
+        </p>
+
         <p>Where the alternatives genuinely win, the table says so.</p>
         <div class="tbl">
           <table class="compare">
@@ -183,10 +203,32 @@
           devcontainers. If you want the strongest practical boundary for autonomous
           agents on a Mac, use a VM.
         </p>
+
+        <h3>What about Tart, or Apple's <code>container</code> CLI?</h3>
+        <p>
+          Same isolation class — both are Virtualization.framework VMs, like the Lima
+          VMs <code>machine</code> boots. The difference is what's wired up around the VM.
+          <a href="https://tart.run/">Tart</a> is excellent at golden images and OCI-registry
+          distribution, which is why it owns macOS CI; it hands you a booted VM, and the
+          dev-environment part — provisioning, agent CLIs, git signing through a forwarded
+          agent, secrets, per-project config — is yours to build. Apple's
+          <a href="https://github.com/apple/container"><code>container</code></a> runs each
+          Linux container in its own lightweight VM: strong per-container isolation with
+          container UX, but it's an image-based runtime for workloads, not a persistent
+          provisioned machine an agent works in across sessions.
+        </p>
+        <p class="muted">
+          Building macOS CI? Tart wins. Running containerized services with VM-grade
+          isolation? Apple's <code>container</code> is interesting. Wanting one command from
+          <code>brew install</code> to an agent working in a signed-git, secret-injected
+          Linux box? That's the gap <code>machine</code> fills.
+        </p>
       </section>
 
       <section id="faq">
         <h2><span class="num">05</span>FAQ</h2>
+        <h3>Does <code>machine</code> run on Linux or Windows hosts?</h3>
+        <p>No — macOS 13 or newer only (Apple Silicon or Intel). The VMs boot through Lima's <code>vz</code> driver, which is Apple's Virtualization framework. On Linux, Claude Code's built-in sandbox or a devcontainer is the right tool.</p>
         <h3>Does the agent get internet access?</h3>
         <p>Yes — the VM has normal outbound networking (it needs npm, apt, GitHub). The boundary protects your host and other projects, not the network.</p>
         <h3>How do I see the app the agent is building?</h3>
