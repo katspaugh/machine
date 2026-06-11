@@ -101,7 +101,14 @@ def configure_ssh_agent() -> None:
 def load_projects() -> dict[str, Any]:
     if not PROJECTS_FILE.is_file():
         return {}
-    return tomllib.loads(PROJECTS_FILE.read_text())
+    try:
+        text = PROJECTS_FILE.read_text()
+    except OSError as e:
+        die(f"cannot read {PROJECTS_FILE}: {e.strerror or e}")
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        die(f"invalid TOML in {PROJECTS_FILE}: {e}")
 
 
 def get_project(cfg: dict[str, Any], name: str) -> dict[str, Any]:
@@ -130,9 +137,7 @@ def project_profiles(name: str) -> list[str]:
 
 
 def project_shell(name: str) -> str:
-    if not PROJECTS_FILE.is_file():
-        return "zsh"
-    cfg = tomllib.loads(PROJECTS_FILE.read_text())
+    cfg = load_projects()
     project = cfg.get(name) or {}
     shell = project.get("shell") if isinstance(project, dict) else None
     if shell is None:
@@ -269,8 +274,11 @@ def read_signing_key() -> str:
         if not shutil.which("op"):
             die("OP_SIGNING_KEY_REF set but 'op' CLI not found (brew install 1password-cli)")
         out = subprocess.run(
-            ["op", "read", op_ref], capture_output=True, text=True, check=True
+            ["op", "read", op_ref], capture_output=True, text=True
         )
+        if out.returncode != 0:
+            detail = (out.stderr or out.stdout).strip()
+            die(f"op read {op_ref} failed: {detail or f'exit {out.returncode}'}")
         return out.stdout.replace("\n", "")
     if path := os.environ.get("GIT_SIGNING_PUBKEY_FILE"):
         p = Path(path)
@@ -693,7 +701,10 @@ def cmd_list(args: argparse.Namespace) -> int:
 def cmd_destroy(args: argparse.Namespace) -> int:
     name = args.project
     if not args.force:
-        ans = input(f"Destroy VM '{name}'? [y/N] ")
+        try:
+            ans = input(f"Destroy VM '{name}'? [y/N] ")
+        except EOFError:
+            ans = ""
         if ans != "y":
             print("aborted")
             return 1
@@ -955,6 +966,12 @@ def main(argv: list[str] | None = None) -> int:
         return COMMANDS[args.cmd](args)
     except subprocess.CalledProcessError as e:
         return e.returncode or 1
+    except FileNotFoundError as e:
+        missing = e.filename or "command"
+        hint = " — brew install lima" if missing == "limactl" else ""
+        print(f"machine: required command not found: {missing}{hint}",
+              file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         print()
         return 130
