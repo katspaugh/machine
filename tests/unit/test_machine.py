@@ -53,6 +53,11 @@ class _MachineTestCase(unittest.TestCase):
             "[locked]\n"
             "forward_agent = false\n"
             'repos = ["git@github.com:me/locked.git"]\n'
+            "[big]\n"
+            "repos = []\n"
+            "cpus = 8\n"
+            'memory = "16GiB"\n'
+            'disk = "60GiB"\n'
         )
         self.m = load_machine({
             "PROJECTS_FILE": str(projects),
@@ -537,6 +542,79 @@ class TestSecretsReachability(_MachineTestCase):
              contextlib.redirect_stderr(io.StringIO()) as err:
             self.m.cmd_secrets_clear(self._secrets_args(repo="blog", clear=True))
         self.assertIn("cannot reach VM 'blog'", err.getvalue())
+
+
+class TestProjectResources(_MachineTestCase):
+    """Per-project cpus/memory/disk overrides for the generated template.
+    Like forward_agent, they apply when the VM is (re)created."""
+
+    def _rewrite_projects(self, body: str) -> None:
+        self.m.PROJECTS_FILE.write_text(body)
+
+    def test_project_resources_empty_when_unset(self):
+        self.assertEqual(self.m.project_resources("blog"), {})
+
+    def test_project_resources_unknown_project_empty(self):
+        self.assertEqual(self.m.project_resources("no-such-project"), {})
+
+    def test_project_resources_returns_configured(self):
+        self.assertEqual(
+            self.m.project_resources("big"),
+            {"cpus": "8", "memory": "16GiB", "disk": "60GiB"})
+
+    def test_project_resources_bare_int_means_gib(self):
+        self._rewrite_projects("[big]\nmemory = 16\ndisk = 60\n")
+        self.assertEqual(
+            self.m.project_resources("big"),
+            {"memory": "16GiB", "disk": "60GiB"})
+
+    def test_project_resources_invalid_cpus_dies(self):
+        for bad in ('cpus = "lots"', "cpus = 0", "cpus = -2"):
+            self._rewrite_projects(f"[big]\n{bad}\n")
+            with self.assertRaises(SystemExit), \
+                 contextlib.redirect_stderr(io.StringIO()) as err:
+                self.m.project_resources("big")
+            self.assertIn("cpus", err.getvalue())
+
+    def test_project_resources_invalid_memory_dies(self):
+        self._rewrite_projects('[big]\nmemory = "16 gigs"\n')
+        with self.assertRaises(SystemExit), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            self.m.project_resources("big")
+        self.assertIn("memory", err.getvalue())
+        self.assertIn("16GiB", err.getvalue())  # message shows the format
+
+    def test_render_template_emits_resource_overrides_before_base(self):
+        out = self.m.render_template(
+            "big", [], golden=False,
+            resources={"cpus": "8", "memory": "16GiB", "disk": "60GiB"})
+        text = out.read_text()
+        for line in ("cpus: 8", "memory: 16GiB", "disk: 60GiB"):
+            self.assertIn(line, text)
+            # overrides must precede the base: stack so they win the merge
+            self.assertLess(text.index(line), text.index("base:"))
+
+    def test_render_template_no_resources_by_default(self):
+        text = self.m.render_template("blog", [], golden=False).read_text()
+        for key in ("cpus:", "memory:", "disk:"):
+            self.assertNotIn(key, text)
+
+    def test_cmd_up_renders_template_with_resources(self):
+        with mock.patch.object(self.m, "close_lima_ssh_master"), \
+             mock.patch.object(self.m, "verify_repos_reachable"), \
+             mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch.object(self.m, "resolve_params", return_value={}), \
+             mock.patch.object(self.m, "golden_fresh", return_value=True), \
+             mock.patch.object(self.m, "render_template",
+                               return_value=Path("/dev/null")) as render, \
+             mock.patch.object(self.m.Path, "home",
+                               return_value=Path(self.tmp.name)), \
+             mock.patch.object(self.m, "run", return_value=proc(0)), \
+             mock.patch.object(self.m, "clone_repo", return_value=None), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.m.cmd_up(argparse.Namespace(project="big"))
+        self.assertEqual(render.call_args.kwargs["resources"],
+                         {"cpus": "8", "memory": "16GiB", "disk": "60GiB"})
 
 
 class TestErrorHandling(_MachineTestCase):

@@ -107,9 +107,13 @@ Example `projects.toml`:
 repos = ["git@github.com:you/blog.git"]
 
 # Multi-repo: sibling-clones in one VM. The first is the "primary" —
-# `machine ssh wallet` opens at its directory.
+# `machine ssh wallet` opens at its directory. A heavy monorepo gets
+# more than the default 4 CPUs / 8GiB / 30GiB disk.
 [wallet]
 profiles = ["cypress"]
+cpus = 8
+memory = "16GiB"
+disk = "60GiB"
 repos = [
   "git@github.com:you/safe-wallet-dev-env.git",
   "git@github.com:you/safe-wallet-monorepo.git",
@@ -144,8 +148,8 @@ port to `127.0.0.1` on the host.
 To update the toolchain in place: `machine down <p> && machine up <p>`
 (provision scripts re-run; apt picks up new versions). To start truly fresh:
 `machine destroy <p> && machine up <p>`. Changing your git identity, signing
-key, or `forward_agent` requires a recreate (they're fixed when the VM is
-created).
+key, `forward_agent`, or VM resources (`cpus`/`memory`/`disk`) requires a
+recreate (they're fixed when the VM is created).
 
 ### SSH config
 
