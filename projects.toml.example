@@ -12,6 +12,9 @@
 #                                     # the VM gets no channel to your host keys; use a per-project
 #                                     # deploy key instead (README → "Restricting the forwarded
 #                                     # agent"). Takes effect when the VM is (re)created.
+#   cpus     = 8                      # optional. VM resources, overriding the base template's
+#   memory   = "16GiB"                # defaults (4 CPUs / 8GiB / 30GiB). Bare integers for
+#   disk     = "60GiB"                # memory/disk mean GiB. Take effect when the VM is (re)created.
 #
 # Each profile is a templates/<name>.yaml + provision/<name>.sh pair.
 # Each repo is cloned into ~/code/<basename(<git-url>)>/ inside the VM.
