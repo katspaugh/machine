@@ -26,6 +26,11 @@ images:
 # No host filesystem visible to the guest. Each project gets its own VM.
 mounts: []
 
+# forwardAgent grants the guest *use* of every key the host agent holds while
+# a connection is open (auth + signing, any repo the key authorizes) — the key
+# material itself never enters the guest. Projects opt out per-VM with
+# `forward_agent = false` in projects.toml, which overrides this in the
+# generated template (see README → "Restricting the forwarded agent").
 ssh:
   forwardAgent: true
   loadDotSSHPubKeys: false

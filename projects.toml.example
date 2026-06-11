@@ -8,6 +8,10 @@
 #   repos    = ["git@github.com:org/repo.git", ...]
 #   profiles = ["cypress", ...]       # optional. Stacks on top of the base VM.
 #   shell    = "bash"                 # optional. zsh|bash. Login shell inside the VM (default zsh).
+#   forward_agent = false             # optional, default true. False = no SSH agent forwarding:
+#                                     # the VM gets no channel to your host keys; use a per-project
+#                                     # deploy key instead (README → "Restricting the forwarded
+#                                     # agent"). Takes effect when the VM is (re)created.
 #
 # Each profile is a templates/<name>.yaml + provision/<name>.sh pair.
 # Each repo is cloned into ~/code/<basename(<git-url>)>/ inside the VM.

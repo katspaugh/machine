@@ -221,7 +221,7 @@
     <div class="diagram-captions">
       <div class="cap">
         <div class="k">agent-forwarded SSH</div>
-        <div class="v">Your <code>ssh-agent</code> is forwarded into the guest at exec time. The key file never leaves the host.</div>
+        <div class="v">Your <code>ssh-agent</code> is forwarded into the guest at exec time. The key file never leaves the host — the guest can use the keys while connected, never read them.</div>
       </div>
       <div class="cap">
         <div class="k">tmpfs-only secrets</div>
@@ -251,7 +251,7 @@
       <article class="why-card">
         <div class="why-num">02</div>
         <h3>Each project gets a real boundary.</h3>
-        <p>One VM per project. No host filesystem mount. No shared project volumes. Your SSH agent is forwarded in for auth and signing — private keys never leave the host. The blast radius of a bad dependency or over-eager agent is one disposable machine.</p>
+        <p>One VM per project. No host filesystem mount. No shared project volumes. Your SSH agent is forwarded in for auth and signing — private keys never leave the host, though the VM can use them while you're connected (gate or drop that grant per project: <a href="docs/#ssh-agent">restricting the forwarded agent</a>). The blast radius of a bad dependency or over-eager agent is one disposable machine.</p>
         <code>machine up blog</code>
       </article>
       <article class="why-card">

@@ -50,6 +50,9 @@ class _MachineTestCase(unittest.TestCase):
             "[bare]\n"
             "profiles = []\n"
             'repos = []\n'
+            "[locked]\n"
+            "forward_agent = false\n"
+            'repos = ["git@github.com:me/locked.git"]\n'
         )
         self.m = load_machine({
             "PROJECTS_FILE": str(projects),
@@ -157,6 +160,28 @@ class TestHelpers(_MachineTestCase):
         }), mock.patch("sys.stderr", stderr):
             self.m.configure_ssh_agent()
         self.assertIn("MACHINE_USE_1PASSWORD", stderr.getvalue())
+
+    def test_project_forward_agent_defaults_true(self):
+        self.assertTrue(self.m.project_forward_agent("blog"))
+
+    def test_project_forward_agent_explicit_false(self):
+        self.assertFalse(self.m.project_forward_agent("locked"))
+
+    def test_project_forward_agent_unknown_project_true(self):
+        self.assertTrue(self.m.project_forward_agent("no-such-project"))
+
+    def test_render_template_forward_agent_false_overrides_base(self):
+        out = self.m.render_template("locked", [], golden=False,
+                                     forward_agent=False)
+        text = out.read_text()
+        self.assertIn("ssh:", text)
+        self.assertIn("forwardAgent: false", text)
+        # the override must precede the base: stack so it wins the merge
+        self.assertLess(text.index("ssh:"), text.index("base:"))
+
+    def test_render_template_default_keeps_base_forwarding(self):
+        out = self.m.render_template("blog", [], golden=False)
+        self.assertNotIn("forwardAgent", out.read_text())
 
     def test_resolve_up_known_project(self):
         urls, profiles = self.m.resolve_up_target(self.m.load_projects(), "blog")
@@ -275,6 +300,50 @@ class TestCloneWarnings(_MachineTestCase):
         self.assertIn("  deps install failed for blog — re-run inside the VM", out)
         self.assertNotIn("✓", out)
 
+    def test_cmd_up_clone_auth_failure_warns_when_forwarding_off(self):
+        # With forward_agent = false the in-VM clone has no agent to auth
+        # with until the user installs a deploy key — surface a hint instead
+        # of dying mid-up.
+        err = subprocess.CalledProcessError(128, ["git", "clone"])
+        out = io.StringIO()
+        with mock.patch.object(self.m, "close_lima_ssh_master"), \
+             mock.patch.object(self.m, "verify_repos_reachable"), \
+             mock.patch.object(self.m, "vm_exists", return_value=True), \
+             mock.patch.object(self.m, "run", return_value=proc(0)), \
+             mock.patch.object(self.m, "clone_repo", side_effect=err), \
+             contextlib.redirect_stdout(out):
+            rc = self.m.cmd_up(argparse.Namespace(project="locked"))
+        self.assertEqual(rc, 0)
+        self.assertIn("⚠ locked ready with warnings:", out.getvalue())
+        self.assertIn("deploy key", out.getvalue())
+
+    def test_cmd_up_clone_failure_still_fatal_when_forwarding_on(self):
+        err = subprocess.CalledProcessError(128, ["git", "clone"])
+        with mock.patch.object(self.m, "close_lima_ssh_master"), \
+             mock.patch.object(self.m, "verify_repos_reachable"), \
+             mock.patch.object(self.m, "vm_exists", return_value=True), \
+             mock.patch.object(self.m, "run", return_value=proc(0)), \
+             mock.patch.object(self.m, "clone_repo", side_effect=err), \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.m.cmd_up(argparse.Namespace(project="blog"))
+
+    def test_cmd_up_renders_template_with_forward_agent_off(self):
+        with mock.patch.object(self.m, "close_lima_ssh_master"), \
+             mock.patch.object(self.m, "verify_repos_reachable"), \
+             mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch.object(self.m, "resolve_params", return_value={}), \
+             mock.patch.object(self.m, "golden_fresh", return_value=True), \
+             mock.patch.object(self.m, "render_template",
+                               return_value=Path("/dev/null")) as render, \
+             mock.patch.object(self.m.Path, "home",
+                               return_value=Path(self.tmp.name)), \
+             mock.patch.object(self.m, "run", return_value=proc(0)), \
+             mock.patch.object(self.m, "clone_repo", return_value=None), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.m.cmd_up(argparse.Namespace(project="locked"))
+        self.assertFalse(render.call_args.kwargs["forward_agent"])
+
     def test_cmd_up_closes_ssh_master_after_provisioning(self):
         # Provisioning (`limactl start`) may `chsh` the login shell; the SSH
         # master opened during start stays pinned to the old shell, so it must
@@ -367,6 +436,17 @@ class TestAgentSelfHeal(_MachineTestCase):
         close.assert_not_called()
         sh.assert_not_called()
         keys.assert_not_called()
+
+    def test_heal_noop_when_forwarding_disabled(self):
+        # No agent reaches a forward_agent = false VM, so its in-VM probe
+        # would always "fail" and thrash the master on every ssh.
+        with mock.patch.object(self.m.Path, "exists", return_value=True), \
+             mock.patch.object(self.m, "_agent_has_keys", return_value=True), \
+             mock.patch.object(self.m, "lima_shell") as sh, \
+             mock.patch.object(self.m, "close_lima_ssh_master") as close:
+            self.m._heal_stale_agent_master("locked")
+        close.assert_not_called()
+        sh.assert_not_called()
 
     def test_heal_noop_when_host_agent_empty(self):
         with mock.patch.object(self.m.Path, "exists", return_value=True), \

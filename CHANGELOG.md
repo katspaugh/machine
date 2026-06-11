@@ -7,6 +7,21 @@ by `scripts/release.sh`.
 
 ## [Unreleased]
 
+### Added
+- Per-project `forward_agent = false` in `projects.toml`: the generated Lima
+  template overrides `ssh.forwardAgent`, so the VM gets no channel to the host
+  SSH agent — pair it with a per-repo deploy key for the strictest setup.
+  `machine up` warns (instead of failing) when the clone needs that deploy
+  key, and the agent self-heal step skips such VMs.
+
+### Changed
+- README, SECURITY.md, and the docs site now describe what agent forwarding
+  actually grants: the VM never reads private keys, but while a forwarded
+  connection is open it can sign and authenticate with every key the agent
+  holds — any repo the key authorizes, not just the project's. A new
+  "Restricting the forwarded agent" section covers per-use approval
+  (1Password), confirmation-gated keys (`ssh-add -c`), and deploy keys.
+
 ### Removed
 - `machine tab` (the macOS new-tab helper). It drove Terminal.app via
   AppleScript and did not work reliably.

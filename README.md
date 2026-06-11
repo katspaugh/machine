@@ -17,11 +17,12 @@ AI coding agents are most useful with full autonomy — and full autonomy on
 your host means access to your keys, your other projects, and everything
 `npm install` drags in. A bare sandbox fixes the safety problem and creates a
 setup problem. `machine` solves both: each project gets a disposable VM that
-comes up already provisioned for agent work — toolchain installed, git signing
-wired through the forwarded SSH agent (keys stay on the host; the VM only ever
-sees signatures), secrets rendered into tmpfs and gone on reboot. "Yes to
-everything" is a safe answer, and there's no morning of setup before it's a
-useful one.
+comes up already provisioned for agent work — toolchain installed, git auth
+and signing wired through the forwarded SSH agent (private keys stay on the
+host; the VM can use them through the agent while you're connected, but never
+read them — see [Threat model](#threat-model)), secrets rendered into tmpfs
+and gone on reboot. "Yes to everything" stops risking your laptop, and there's
+no morning of setup before it's a useful answer.
 
 Read the guide: [Sandboxing Claude Code](https://runmachine.dev/sandboxing-claude-code/).
 
@@ -122,8 +123,9 @@ port to `127.0.0.1` on the host.
 
 To update the toolchain in place: `machine down <p> && machine up <p>`
 (provision scripts re-run; apt picks up new versions). To start truly fresh:
-`machine destroy <p> && machine up <p>`. Changing your git identity or
-signing key requires a recreate (params are fixed when the VM is created).
+`machine destroy <p> && machine up <p>`. Changing your git identity, signing
+key, or `forward_agent` requires a recreate (they're fixed when the VM is
+created).
 
 ### SSH config
 
@@ -160,8 +162,9 @@ With the `Include` line from [SSH config](#ssh-config) in place, any IDE that re
 SSH config sees every VM. The host alias for a project is `lima-<project>`. In VS
 Code → Remote-SSH: open the host picker, pick `lima-<project>`, then open
 `/home/<vm-user>.linux/code/<repo>`. Same
-flow in Cursor and JetBrains Gateway. Lima's config sets `ForwardAgent yes`, so commit
-signing and `gh` work in the IDE's integrated terminal just like in `machine ssh`.
+flow in Cursor and JetBrains Gateway. Lima's config sets `ForwardAgent yes` (unless the
+project opts out with `forward_agent = false`), so commit signing and `gh` work in the
+IDE's integrated terminal just like in `machine ssh`.
 
 Because Lima owns the config file, it stays correct across `up`/`down`/`destroy`
 automatically — there is no host `~/.ssh/config` block for `machine` to manage.
@@ -240,7 +243,7 @@ What happens on `machine up <p>`:
 - cloud-init applies the `mode: data` dotfiles and runs `provision/base.sh` then the profile scripts, on every boot, idempotently.
 - Clone the listed `repos` into `~/code/<basename>/`.
 
-GitHub auth and commit signing both use the forwarded SSH agent — private keys never leave the host; the VM only sees signatures and `ssh -A` proxied auth.
+GitHub auth and commit signing both use the forwarded SSH agent. Private keys never leave the host — but forwarding cuts both ways: while a session is open, anything inside the VM can ask the agent to sign and authenticate with **every** key it holds, not just for this project's repos. See [Threat model](#threat-model) for what that grants and [Restricting the forwarded agent](#restricting-the-forwarded-agent) for stricter setups.
 
 ## Provisioning
 
@@ -301,6 +304,40 @@ For the git signing pubkey, the resolution order is:
 3. `GIT_SIGNING_PUBKEY_FILE=<path>`
 4. Host `git config --global user.signingkey` — literal pubkey or path to a `.pub` file (default; whatever you sign host commits with)
 
+### Restricting the forwarded agent
+
+Forwarding is the convenience default, and it is a real grant: an SSH agent
+performs arbitrary auth operations, so while a forwarded connection is open,
+anything inside the VM — a compromised dependency, a prompt-injected agent —
+can authenticate and sign as you with **every** key the agent holds. `git push`
+to any repo your key can access is in scope, not just this project's. (Lima
+keeps a persistent SSH master alive from your first shell until the VM stops,
+so treat the channel as open whenever the VM is running and you've connected.)
+Pick the friction that matches the trust level of the project:
+
+- **Per-use approval (1Password agent).** 1Password can require approval /
+  Touch ID for each agent request and lets you choose how long an approval
+  lasts (Settings → Developer → Security). Keep the authorization window short
+  for untrusted work, and an injected `git push` becomes a prompt you get to
+  decline.
+- **Confirmation-gated key (Keychain agent).** Load the key with
+  `ssh-add -c ~/.ssh/id_ed25519` — the agent then asks for confirmation on
+  every use. macOS needs an askpass helper to show the dialog
+  (`brew install theseal/ssh-askpass/ssh-askpass`).
+- **No forwarding + a per-project deploy key (strictest).** Set
+  `forward_agent = false` for the project in `projects.toml` — the generated
+  template overrides `ssh.forwardAgent`, and the VM gets no channel to your
+  agent at all. Generate a key inside the VM (`ssh-keygen -t ed25519`) and add
+  its pubkey to the repo as a [deploy key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys)
+  (write access only if it should push): a compromised VM can then reach only
+  that repo. With repos listed, the first `machine up` warns that the clone
+  needs the deploy key instead of failing. Commit signing can't use your host
+  key either — either register the VM key as a signing key on GitHub and
+  `git config --global user.signingkey ~/.ssh/id_ed25519.pub` inside the VM,
+  or `git config --global commit.gpgsign false` there. Like the git params,
+  changing `forward_agent` takes effect on recreate
+  (`machine destroy <p> && machine up <p>`).
+
 ## 1Password env injection
 
 For project secrets you don't want to write to disk, drop a `.envrc` in the repo referencing a 1Password [Environment](https://developer.1password.com/docs/cli/environments/) ID:
@@ -323,7 +360,10 @@ Create an Environment in 1Password desktop: Developer → Environments → New. 
 
 ## Threat model
 
-No host filesystem is mounted. Each project gets its own VM, so a compromise of one project can't reach another's code or env. The host exposes two narrow channels: the forwarded SSH agent (auth + signing — private keys stay on the host, the VM can only request signatures while it's running), and `machine secrets` pushing rendered 1Password Environments into tmpfs (no disk persistence). A fully compromised VM cannot read the 1Password vault — only the secrets a repo explicitly rendered, and only while that tmpfs lives.
+No host filesystem is mounted. Each project gets its own VM, so a compromise of one project can't reach another's code or env. The host exposes two narrow channels:
+
+- The **forwarded SSH agent**. Private keys never leave the host and the VM cannot read them — but it can *use* them: while a forwarded connection is open, anything inside the VM can ask the agent to sign commits and to authenticate as you with every key the agent holds. That means a compromised or prompt-injected agent in one VM could `git push` to **any repo your key authorizes**, not just this project's. The isolation here is read-protection of the key material and a channel that dies with the VM — not a per-project scope. To narrow the grant, use per-use approval (1Password), a confirmation-gated key (`ssh-add -c`), or drop forwarding entirely in favor of a per-project deploy key — see [Restricting the forwarded agent](#restricting-the-forwarded-agent).
+- **`machine secrets`** pushing rendered 1Password Environments into tmpfs (no disk persistence). A fully compromised VM cannot read the 1Password vault — only the secrets a repo explicitly rendered, and only while that tmpfs lives.
 
 ## Override knobs
 
