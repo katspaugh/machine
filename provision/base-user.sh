@@ -5,8 +5,12 @@ set -eu -o pipefail
 
 export PATH="$HOME/.local/bin:$PATH"
 
+# Version-pinned (`install.sh <version>` instead of the floating default);
+# the installer verifies the downloaded binary's sha256 against the release
+# manifest, so the pin is what makes the install reproducible. Bump to upgrade.
+CLAUDE_VERSION=2.1.173
 if ! command -v claude >/dev/null 2>&1; then
-  curl -fsSL https://claude.ai/install.sh | bash
+  curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_VERSION"
 fi
 command -v claude >/dev/null
 
