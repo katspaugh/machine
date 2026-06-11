@@ -18,7 +18,13 @@ else
   done
 fi
 
-# bin/machine is Python; sanity-check it parses.
-python3 -c "import ast; ast.parse(open('bin/machine').read())"
+# Python sources: ruff if installed (`brew install ruff`); else a bare
+# syntax check so the script at least parses.
+if command -v ruff >/dev/null 2>&1; then
+  ruff check .
+else
+  echo "lint: ruff not installed — falling back to ast.parse syntax checks"
+  python3 -c "import ast; ast.parse(open('bin/machine').read())"
+fi
 
 echo "lint OK"

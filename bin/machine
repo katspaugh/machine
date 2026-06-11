@@ -19,9 +19,16 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tomllib
-from pathlib import Path
-from typing import Any, Sequence
+
+if sys.version_info < (3, 11):
+    sys.exit(
+        "machine: Python 3.11+ required (for tomllib), "
+        f"running {sys.version.split()[0]}"
+    )
+
+import tomllib  # noqa: E402 — deferred so the version gate above runs first
+from pathlib import Path  # noqa: E402
+from typing import Any, Sequence  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 # In a git checkout REPO == the cloned tree (config + state colocated).

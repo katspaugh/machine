@@ -14,18 +14,24 @@ permissions:
 jobs:
   lint-and-unit:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Install shellcheck and ruff
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          pip install ruff
 
-      - name: Lint shell scripts
+      - name: Lint (shellcheck + ruff)
         run: bash tests/lint.sh
 
       - name: Unit tests (host-side)
@@ -41,3 +47,25 @@ jobs:
               yaml.safe_load(f.read_text())
               print(f"ok {f}")
           EOF
+
+  # bin/machine needs 3.11+ (tomllib); on older Pythons it must exit with a
+  # clear message instead of an ImportError traceback.
+  version-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Unsupported Python exits with a friendly error
+        run: |
+          set +e
+          err=$(python3 bin/machine --help 2>&1)
+          status=$?
+          set -e
+          echo "$err"
+          [ "$status" -ne 0 ] || { echo "expected non-zero exit on 3.10"; exit 1; }
+          echo "$err" | grep -q "Python 3.11+ required"
