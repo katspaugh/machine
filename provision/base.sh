@@ -53,6 +53,13 @@ systemctl enable --now docker
 # First install must succeed (fail fast while baking); once the probe binary
 # exists, refreshes are best-effort so offline re-boots don't fail the boot
 # probe. `corepack enable` is a local shim write — always safe.
+# Version-pinned so every boot installs the same artifacts (npm/corepack
+# verify registry integrity hashes themselves). Bump to upgrade.
+PNPM_VERSION=11.5.3
+YARN_VERSION=4.16.0
+TYPESCRIPT_VERSION=6.0.3
+TS_LANGSERVER_VERSION=5.3.0
+CODEX_VERSION=0.139.0
 refresh() { # <probe-bin> <cmd...>
   local probe="$1"; shift
   if command -v "$probe" >/dev/null 2>&1; then
@@ -62,9 +69,10 @@ refresh() { # <probe-bin> <cmd...>
   fi
 }
 corepack enable
-refresh pnpm corepack prepare pnpm@latest --activate
-refresh yarn corepack prepare yarn@stable --activate
-refresh tsc npm install -g typescript typescript-language-server @openai/codex
+refresh pnpm corepack prepare "pnpm@$PNPM_VERSION" --activate
+refresh yarn corepack prepare "yarn@$YARN_VERSION" --activate
+refresh tsc npm install -g "typescript@$TYPESCRIPT_VERSION" \
+  "typescript-language-server@$TS_LANGSERVER_VERSION" "@openai/codex@$CODEX_VERSION"
 
 # --- Default login shell ------------------------------------------------------
 TARGET_SHELL="{{.Param.shell}}"
