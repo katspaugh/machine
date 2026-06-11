@@ -99,7 +99,7 @@ class TestHelpers(_MachineTestCase):
         self.assertNotIn("file://", text)
         # Lima prepends each successively merged base, so profiles are listed
         # reversed and base.yaml last → base.sh executes first.
-        entries = [l for l in text.splitlines() if l.startswith("- ")]
+        entries = [line for line in text.splitlines() if line.startswith("- ")]
         self.assertTrue(entries[0].endswith("templates/supabase-fly.yaml"))
         self.assertTrue(entries[1].endswith("templates/cypress.yaml"))
         self.assertTrue(entries[2].endswith("templates/base.yaml"))

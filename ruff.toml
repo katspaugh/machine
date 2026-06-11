@@ -1,0 +1,3 @@
+# bin/machine has no .py extension; pull it into ruff's default file set.
+extend-include = ["bin/machine"]
+target-version = "py311"
