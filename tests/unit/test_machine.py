@@ -205,35 +205,13 @@ class TestZeroConfig(unittest.TestCase):
     def test_load_projects_missing_file_returns_empty(self):
         self.assertEqual(self.m.load_projects(), {})
 
-    def test_resolve_up_default_never_prompts(self):
-        with mock.patch.object(self.m, "vm_exists", return_value=False), \
-             mock.patch("builtins.input", side_effect=AssertionError("prompted")):
-            urls, profiles = self.m.resolve_up_target({}, "default")
-        self.assertEqual((urls, profiles), ([], []))
-
-    def test_resolve_up_unknown_name_accepted(self):
-        with mock.patch.object(self.m, "vm_exists", return_value=False), \
-             mock.patch("builtins.input", return_value="y"):
-            urls, profiles = self.m.resolve_up_target({}, "scratch")
-        self.assertEqual((urls, profiles), ([], []))
-
-    def test_resolve_up_unknown_name_declined(self):
-        with mock.patch.object(self.m, "vm_exists", return_value=False), \
-             mock.patch("builtins.input", return_value=""):
-            with self.assertRaises(SystemExit):
-                self.m.resolve_up_target({}, "scratch")
-
-    def test_resolve_up_unknown_name_eof_aborts(self):
-        with mock.patch.object(self.m, "vm_exists", return_value=False), \
-             mock.patch("builtins.input", side_effect=EOFError):
-            with self.assertRaises(SystemExit):
-                self.m.resolve_up_target({}, "scratch")
-
-    def test_resolve_up_existing_vm_skips_prompt(self):
-        with mock.patch.object(self.m, "vm_exists", return_value=True), \
-             mock.patch("builtins.input", side_effect=AssertionError("prompted")):
-            urls, profiles = self.m.resolve_up_target({}, "scratch")
-        self.assertEqual((urls, profiles), ([], []))
+    def test_resolve_up_target_never_prompts(self):
+        # Unknown names are routed through the create wizard *before*
+        # resolve_up_target; by the time it runs, an entry-less name is an
+        # ad-hoc base VM ('default', pre-existing VMs) — no interaction.
+        with mock.patch("builtins.input", side_effect=AssertionError("prompted")):
+            self.assertEqual(self.m.resolve_up_target({}, "default"), ([], []))
+            self.assertEqual(self.m.resolve_up_target({}, "scratch"), ([], []))
 
     def test_resolve_up_ad_hoc_honors_default_profile(self):
         urls, profiles = self.m.resolve_up_target(
@@ -242,9 +220,8 @@ class TestZeroConfig(unittest.TestCase):
 
     def test_parser_defaults_project_to_default(self):
         ap = self.m.build_parser()
-        for cmd in ("up", "down", "ssh", "claude", "destroy", "secrets"):
+        for cmd in ("down", "ssh", "claude", "destroy", "secrets"):
             self.assertEqual(ap.parse_args([cmd]).project, "default", cmd)
-        self.assertEqual(ap.parse_args(["up", "blog"]).project, "blog")
 
     def test_parser_run_still_requires_project(self):
         with self.assertRaises(SystemExit):
@@ -623,6 +600,290 @@ class TestErrorHandling(_MachineTestCase):
                 argparse.Namespace(project="blog", force=False))
         self.assertEqual(rc, 1)
         self.assertIn("aborted", out.getvalue())
+
+
+class TestProjectEntryFormatting(_MachineTestCase):
+    def test_single_repo_renders_one_line(self):
+        text = self.m.format_project_entry(
+            "blog", {"repos": ["git@github.com:me/blog.git"]})
+        self.assertEqual(
+            text,
+            '[blog]\nrepos = ["git@github.com:me/blog.git"]\n')
+
+    def test_multi_repo_renders_multiline(self):
+        text = self.m.format_project_entry(
+            "wallet", {"repos": ["git@github.com:me/a.git",
+                                 "git@github.com:me/b.git"]})
+        self.assertIn("repos = [\n", text)
+        self.assertIn('  "git@github.com:me/a.git",\n', text)
+        self.assertIn('  "git@github.com:me/b.git",\n', text)
+
+    def test_optional_keys_rendered_when_present(self):
+        import tomllib
+        text = self.m.format_project_entry("p", {
+            "repos": [],
+            "profiles": ["cypress", "supabase-fly"],
+            "shell": "bash",
+            "forward_agent": False,
+        })
+        parsed = tomllib.loads(text)["p"]
+        self.assertEqual(parsed["repos"], [])
+        self.assertEqual(parsed["profiles"], ["cypress", "supabase-fly"])
+        self.assertEqual(parsed["shell"], "bash")
+        self.assertIs(parsed["forward_agent"], False)
+
+    def test_optional_keys_omitted_when_absent(self):
+        text = self.m.format_project_entry(
+            "p", {"repos": ["git@github.com:me/p.git"]})
+        self.assertNotIn("profiles", text)
+        self.assertNotIn("shell", text)
+        self.assertNotIn("forward_agent", text)
+
+
+class TestUpsertProjectEntry(_MachineTestCase):
+    def test_append_to_empty_text(self):
+        out = self.m.upsert_project_entry("", "p", "[p]\nrepos = []\n")
+        self.assertEqual(out, "[p]\nrepos = []\n")
+
+    def test_append_preserves_existing_content(self):
+        original = (
+            "# my projects\n"
+            'default_profile = "cypress"\n'
+            "\n"
+            "[blog]\n"
+            'repos = ["git@github.com:me/blog.git"]\n'
+        )
+        out = self.m.upsert_project_entry(original, "new", "[new]\nrepos = []\n")
+        self.assertIn("# my projects", out)
+        self.assertIn("[blog]", out)
+        self.assertTrue(out.endswith("\n[new]\nrepos = []\n"))
+        # blank-line separator between the old tail and the new entry
+        self.assertIn('repos = ["git@github.com:me/blog.git"]\n\n[new]', out)
+
+    def test_replace_middle_block_preserves_neighbors_and_comments(self):
+        import tomllib
+        original = (
+            "# header comment\n"
+            "[blog]\n"
+            'repos = ["git@github.com:me/blog.git"]\n'
+            "\n"
+            "# wallet docs\n"
+            "[wallet]\n"
+            'repos = ["git@github.com:me/a.git"]\n'
+        )
+        out = self.m.upsert_project_entry(
+            original, "blog", '[blog]\nrepos = ["git@github.com:me/new.git"]\n')
+        self.assertIn("# header comment", out)
+        self.assertIn("# wallet docs", out)
+        parsed = tomllib.loads(out)
+        self.assertEqual(parsed["blog"]["repos"], ["git@github.com:me/new.git"])
+        self.assertEqual(parsed["wallet"]["repos"], ["git@github.com:me/a.git"])
+
+    def test_replace_last_block(self):
+        import tomllib
+        original = (
+            "[blog]\n"
+            'repos = ["git@github.com:me/blog.git"]\n'
+            "\n"
+            "[wallet]\n"
+            'repos = ["git@github.com:me/a.git"]\n'
+        )
+        out = self.m.upsert_project_entry(
+            original, "wallet",
+            '[wallet]\nrepos = ["git@github.com:me/b.git"]\nshell = "bash"\n')
+        parsed = tomllib.loads(out)
+        self.assertEqual(parsed["wallet"]["repos"], ["git@github.com:me/b.git"])
+        self.assertEqual(parsed["wallet"]["shell"], "bash")
+        self.assertEqual(parsed["blog"]["repos"], ["git@github.com:me/blog.git"])
+
+
+class TestAvailableProfiles(_MachineTestCase):
+    def test_lists_stackable_templates_without_base(self):
+        profiles = self.m.available_profiles()
+        self.assertIn("cypress", profiles)
+        self.assertIn("supabase-fly", profiles)
+        self.assertNotIn("base", profiles)
+        self.assertEqual(profiles, sorted(profiles))
+
+
+class TestCreateWizard(_MachineTestCase):
+    """Drives run_create_wizard with scripted input(). Prompt order:
+    [name when not given], repo URLs (blank line ends; first blank keeps
+    current in edit mode), profiles, shell, forward_agent."""
+
+    def _wizard(self, inputs, name=None):
+        with mock.patch("builtins.input", side_effect=inputs), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            return self.m.run_create_wizard(name)
+
+    def _parsed(self):
+        import tomllib
+        return tomllib.loads(self.m.PROJECTS_FILE.read_text())
+
+    def test_creates_new_entry(self):
+        got = self._wizard(["git@github.com:me/new.git", "", "", "", ""],
+                           name="newproj")
+        self.assertEqual(got, "newproj")
+        cfg = self._parsed()
+        self.assertEqual(cfg["newproj"]["repos"], ["git@github.com:me/new.git"])
+        # Enter at the profile prompt accepts the default (default_profile)
+        self.assertEqual(cfg["newproj"]["profiles"], ["cypress"])
+        # zsh is the implicit default, forwarding defaults on — neither written
+        self.assertNotIn("shell", cfg["newproj"])
+        self.assertNotIn("forward_agent", cfg["newproj"])
+        # the rest of the file survives
+        self.assertEqual(cfg["default_profile"], "cypress")
+        self.assertIn("blog", cfg)
+
+    def test_edit_mode_enter_keeps_current_values(self):
+        self._wizard(["", "", "", ""], name="wallet")
+        cfg = self._parsed()
+        self.assertEqual(cfg["wallet"]["repos"],
+                         ["git@github.com:me/a.git", "git@github.com:me/b.git"])
+        self.assertEqual(cfg["wallet"]["profiles"], ["cypress", "supabase-fly"])
+        self.assertEqual(cfg["wallet"]["shell"], "bash")
+        self.assertIn("blog", cfg)
+
+    def test_edit_mode_new_repos_replace_current(self):
+        self._wizard(["git@github.com:me/only.git", "", "", "", ""],
+                     name="wallet")
+        self.assertEqual(self._parsed()["wallet"]["repos"],
+                         ["git@github.com:me/only.git"])
+
+    def test_none_clears_profiles_overriding_default(self):
+        # default_profile is set, so clearing must write profiles = []
+        # (an omitted key would fall back to the default).
+        self._wizard(["", "none", "", ""], name="blog")
+        self.assertEqual(self._parsed()["blog"]["profiles"], [])
+
+    def test_unknown_profile_reprompts(self):
+        self._wizard(["git@github.com:me/p.git", "", "bogus", "cypress",
+                      "", ""], name="p2")
+        self.assertEqual(self._parsed()["p2"]["profiles"], ["cypress"])
+
+    def test_forward_agent_no_is_written(self):
+        self._wizard(["git@github.com:me/p.git", "", "", "", "n"], name="p3")
+        self.assertIs(self._parsed()["p3"]["forward_agent"], False)
+
+    def test_explicit_bash_shell_is_written(self):
+        self._wizard(["git@github.com:me/p.git", "", "", "bash", ""],
+                     name="p4")
+        self.assertEqual(self._parsed()["p4"]["shell"], "bash")
+
+    def test_prompts_for_name_and_reprompts_on_invalid(self):
+        got = self._wizard(["Bad_Name", "good-name",
+                            "git@github.com:me/g.git", "", "", "", ""])
+        self.assertEqual(got, "good-name")
+        self.assertIn("good-name", self._parsed())
+
+    def test_eof_dies_with_message(self):
+        with mock.patch("builtins.input", side_effect=EOFError), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            with self.assertRaises(SystemExit):
+                self.m.run_create_wizard("newproj")
+        self.assertIn("machine create", err.getvalue())
+
+    def test_creates_projects_file_when_missing(self):
+        self.m.PROJECTS_FILE.unlink()
+        self._wizard(["git@github.com:me/solo.git", "", "", "", ""],
+                     name="solo")
+        cfg = self._parsed()
+        self.assertEqual(cfg["solo"]["repos"], ["git@github.com:me/solo.git"])
+
+
+class TestUpLaunchesWizard(_MachineTestCase):
+    def test_parser_up_project_defaults_to_none(self):
+        ap = self.m.build_parser()
+        self.assertIsNone(ap.parse_args(["up"]).project)
+        self.assertEqual(ap.parse_args(["up", "blog"]).project, "blog")
+
+    def test_parser_create_takes_optional_name(self):
+        ap = self.m.build_parser()
+        self.assertIsNone(ap.parse_args(["create"]).project)
+        self.assertEqual(ap.parse_args(["create", "blog"]).project, "blog")
+
+    def test_known_project_skips_wizard(self):
+        with mock.patch.object(self.m, "run_create_wizard",
+                               side_effect=AssertionError("wizard ran")):
+            name = self.m.resolve_up_project(self.m.load_projects(), "blog")
+        self.assertEqual(name, "blog")
+
+    def test_unknown_name_launches_wizard_prefilled(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch.object(self.m, "run_create_wizard",
+                               return_value="scratch") as wiz:
+            name = self.m.resolve_up_project(self.m.load_projects(), "scratch")
+        self.assertEqual(name, "scratch")
+        wiz.assert_called_once_with("scratch")
+
+    def test_unknown_name_with_existing_vm_skips_wizard(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=True), \
+             mock.patch.object(self.m, "run_create_wizard",
+                               side_effect=AssertionError("wizard ran")):
+            name = self.m.resolve_up_project(self.m.load_projects(), "scratch")
+        self.assertEqual(name, "scratch")
+
+    def test_bare_up_with_default_vm_keeps_zero_config(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=True), \
+             mock.patch.object(self.m, "run_create_wizard",
+                               side_effect=AssertionError("wizard ran")):
+            name = self.m.resolve_up_project(self.m.load_projects(), None)
+        self.assertEqual(name, "default")
+
+    def test_bare_up_without_default_launches_wizard(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch.object(self.m, "run_create_wizard",
+                               return_value="fresh") as wiz:
+            name = self.m.resolve_up_project(self.m.load_projects(), None)
+        self.assertEqual(name, "fresh")
+        wiz.assert_called_once_with()
+
+    def test_explicit_default_never_launches_wizard(self):
+        with mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch.object(self.m, "run_create_wizard",
+                               side_effect=AssertionError("wizard ran")):
+            name = self.m.resolve_up_project({}, "default")
+        self.assertEqual(name, "default")
+
+    def test_cmd_up_uses_config_written_by_wizard(self):
+        def fake_wizard(name):
+            entry = self.m.format_project_entry(
+                name, {"repos": ["git@github.com:me/scratch.git"]})
+            text = self.m.PROJECTS_FILE.read_text()
+            self.m.PROJECTS_FILE.write_text(
+                self.m.upsert_project_entry(text, name, entry))
+            return name
+
+        with mock.patch.object(self.m, "run_create_wizard",
+                               side_effect=fake_wizard), \
+             mock.patch.object(self.m, "vm_exists", return_value=False), \
+             mock.patch.object(self.m, "close_lima_ssh_master"), \
+             mock.patch.object(self.m, "verify_repos_reachable") as verify, \
+             mock.patch.object(self.m, "resolve_params", return_value={}), \
+             mock.patch.object(self.m, "golden_fresh", return_value=True), \
+             mock.patch.object(self.m, "render_template",
+                               return_value=Path("/dev/null")), \
+             mock.patch.object(self.m.Path, "home",
+                               return_value=Path(self.tmp.name)), \
+             mock.patch.object(self.m, "run", return_value=proc(0)), \
+             mock.patch.object(self.m, "clone_repo", return_value=None) as clone, \
+             contextlib.redirect_stdout(io.StringIO()):
+            rc = self.m.cmd_up(argparse.Namespace(project="scratch"))
+        self.assertEqual(rc, 0)
+        verify.assert_called_once_with(["git@github.com:me/scratch.git"])
+        clone.assert_called_once_with("scratch", "git@github.com:me/scratch.git")
+
+    def test_cmd_create_runs_wizard_and_prints_hint(self):
+        out = io.StringIO()
+        with mock.patch.object(self.m, "run_create_wizard",
+                               return_value="newproj") as wiz, \
+             contextlib.redirect_stdout(out):
+            rc = self.m.cmd_create(argparse.Namespace(project="newproj"))
+        self.assertEqual(rc, 0)
+        wiz.assert_called_once_with("newproj")
+        self.assertIn("machine up newproj", out.getvalue())
 
 
 class TestSyncOneEnv(_MachineTestCase):

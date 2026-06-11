@@ -522,34 +522,191 @@ def clone_repo(vm: str, url: str) -> str | None:
     return None
 
 
-# --- Commands ----------------------------------------------------------------
-def confirm_create(name: str) -> None:
-    """Gate ad-hoc VM creation behind a y/N prompt (typo safety)."""
+# --- Create wizard (projects.toml authoring) ---------------------------------
+def available_profiles() -> list[str]:
+    """Stackable profile templates: templates/*.yaml minus base.yaml."""
+    return sorted(
+        p.stem for p in (REPO / "templates").glob("*.yaml") if p.stem != "base"
+    )
+
+
+def format_project_entry(name: str, entry: dict[str, Any]) -> str:
+    """Render one `[name]` table. json.dumps output is valid as a TOML
+    basic string, so no TOML serializer is needed."""
+    lines = [f"[{name}]"]
+    repos = entry.get("repos", [])
+    if len(repos) <= 1:
+        lines.append(f"repos = [{', '.join(json.dumps(u) for u in repos)}]")
+    else:
+        lines.append("repos = [")
+        lines += [f"  {json.dumps(u)}," for u in repos]
+        lines.append("]")
+    if "profiles" in entry:
+        rendered = ", ".join(json.dumps(p) for p in entry["profiles"])
+        lines.append(f"profiles = [{rendered}]")
+    if "shell" in entry:
+        lines.append(f"shell = {json.dumps(entry['shell'])}")
+    if entry.get("forward_agent") is False:
+        lines.append("forward_agent = false")
+    return "\n".join(lines) + "\n"
+
+
+def upsert_project_entry(text: str, name: str, entry_text: str) -> str:
+    """Replace the `[name]` table in projects.toml text, or append it.
+    Text surgery instead of parse-and-redump so comments and formatting on
+    every untouched line survive."""
+    lines = text.splitlines(keepends=True)
+    this_header = re.compile(r"^\s*\[\s*" + re.escape(name) + r"\s*\]\s*(#.*)?$")
+    any_header = re.compile(r"^\s*\[")
+    start = next((i for i, ln in enumerate(lines) if this_header.match(ln)), None)
+    if start is None:
+        base = text.rstrip("\n")
+        return (base + "\n\n" if base else "") + entry_text
+    end = next(
+        (i for i in range(start + 1, len(lines)) if any_header.match(lines[i])),
+        len(lines),
+    )
+    # Leave trailing blanks/comments to the tail — a comment right above the
+    # next table usually documents that table, and keeping it is always safe.
+    while end > start + 1 and (
+        not lines[end - 1].strip() or lines[end - 1].lstrip().startswith("#")
+    ):
+        end -= 1
+    tail = "".join(lines[end:])
+    if tail and not tail.startswith("\n"):
+        tail = "\n" + tail
+    return "".join(lines[:start]) + entry_text + tail
+
+
+def _ask(prompt: str) -> str:
+    """input() that dies cleanly when stdin is closed (piped/CI use)."""
     try:
-        ans = input(f"No project '{name}' in {PROJECTS_FILE} — create a base VM? [y/N] ")
+        return input(prompt).strip()
     except EOFError:
-        ans = ""
-    if ans != "y":
-        die("aborted")
+        return die("stdin closed — 'machine create' needs an interactive terminal")
+
+
+def run_create_wizard(name: str | None = None) -> str:
+    """Prompt-by-prompt authoring of one projects.toml entry. An existing
+    entry pre-fills every prompt (Enter keeps the current value). Returns
+    the project name once the entry is written."""
+    cfg = load_projects()
+    while name is None:
+        raw = _ask("Project name (a-z, 0-9, hyphen): ")
+        if NAME_RE.fullmatch(raw):
+            name = raw
+        else:
+            print(f"machine: invalid name '{raw}' (use a-z, 0-9, hyphen)",
+                  file=sys.stderr)
+    validate_name(name)
+    existing = cfg.get(name) if isinstance(cfg.get(name), dict) else None
+    print(f"{'Editing' if existing else 'Creating'} [{name}] in {PROJECTS_FILE}")
+
+    current_repos = list(existing.get("repos", [])) if existing else []
+    if current_repos:
+        print("Current repos:")
+        for url in current_repos:
+            print(f"  {url}")
+    repos: list[str] = []
+    while True:
+        hint = ("Enter to keep current" if not repos and current_repos
+                else "Enter to finish")
+        url = _ask(f"Repo URL #{len(repos) + 1} ({hint}): ")
+        if not url:
+            if not repos and current_repos:
+                repos = current_repos
+            break
+        repos.append(url)
+
+    avail = available_profiles()
+    if existing and "profiles" in existing:
+        default_p = [p for p in existing["profiles"] if p]
+    else:
+        default_p = default_profiles(cfg)
+    print(f"Available profiles: {', '.join(avail) or 'none'}")
+    while True:
+        raw = _ask("Profiles (comma-separated, 'none' for none) "
+                   f"[{', '.join(default_p) or 'none'}]: ")
+        if not raw:
+            chosen = default_p
+            break
+        if raw.lower() == "none":
+            chosen = []
+            break
+        chosen = [p for p in re.split(r"[,\s]+", raw) if p]
+        unknown = [p for p in chosen if p not in avail]
+        if not unknown:
+            break
+        print(f"machine: unknown profile(s): {', '.join(unknown)}",
+              file=sys.stderr)
+
+    cfg_shell = cfg.get("default_shell", "zsh")
+    default_shell = (existing or {}).get("shell") or cfg_shell
+    while True:
+        shell = _ask(f"Shell (zsh/bash) [{default_shell}]: ") or default_shell
+        if shell in ("zsh", "bash"):
+            break
+        print("machine: use zsh or bash", file=sys.stderr)
+
+    fwd_default = bool((existing or {}).get("forward_agent", True))
+    raw = _ask("Forward SSH agent into the VM? "
+               f"[{'Y/n' if fwd_default else 'y/N'}]: ")
+    forward = fwd_default if not raw else raw.lower() in ("y", "yes")
+
+    entry: dict[str, Any] = {"repos": repos}
+    # An omitted `profiles` key falls back to default_profile at load time,
+    # so "no profiles" must be written as an explicit [] when that default
+    # exists.
+    if chosen or cfg.get("default_profile"):
+        entry["profiles"] = chosen
+    if shell != cfg_shell:
+        entry["shell"] = shell
+    if not forward:
+        entry["forward_agent"] = False
+
+    entry_text = format_project_entry(name, entry)
+    old = PROJECTS_FILE.read_text() if PROJECTS_FILE.is_file() else ""
+    PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PROJECTS_FILE.write_text(upsert_project_entry(old, name, entry_text))
+    print(f"\n{entry_text}\nwrote [{name}] to {PROJECTS_FILE}")
+    return name
+
+
+# --- Commands ----------------------------------------------------------------
+def resolve_up_project(cfg: dict[str, Any], name: str | None) -> str:
+    """Pick the target for `machine up`. Bare `up` reuses an existing
+    'default' VM/entry; otherwise — and for names with neither a config
+    entry nor a VM — the create wizard runs first so the project lands in
+    projects.toml. Explicit `up default` stays the zero-config scratch VM."""
+    if name is None:
+        if isinstance(cfg.get("default"), dict) or vm_exists("default"):
+            return "default"
+        return run_create_wizard()
+    if name == "default" or isinstance(cfg.get(name), dict) or vm_exists(name):
+        return name
+    return run_create_wizard(name)
 
 
 def resolve_up_target(cfg: dict[str, Any], name: str) -> tuple[list[str], list[str]]:
-    """(urls, profiles) for `machine up`.
-
-    Names not in the config become ad-hoc base VMs: no repos, profiles from
-    `default_profile`. Creation is confirmed first, except for the implicit
-    'default' VM and VMs that already exist (re-`up` stays non-interactive).
-    """
+    """(urls, profiles) for `machine up`. Names without a config entry (the
+    implicit 'default' VM, pre-existing ad-hoc VMs) get no repos and the
+    `default_profile` stack."""
     if isinstance(cfg.get(name), dict):
         return project_urls(name), project_profiles(name)
-    if name != "default" and not vm_exists(name):
-        confirm_create(name)
     return [], default_profiles(cfg)
 
 
+def cmd_create(args: argparse.Namespace) -> int:
+    name = run_create_wizard(args.project)
+    print(f"run 'machine up {name}' to create and start it.")
+    return 0
+
+
 def cmd_up(args: argparse.Namespace) -> int:
-    name = args.project
-    validate_name(name)
+    if args.project is not None:
+        validate_name(args.project)
+    name = resolve_up_project(load_projects(), args.project)
+    # Reload: the wizard may have just written this project's entry.
     urls, profiles = resolve_up_target(load_projects(), name)
     close_lima_ssh_master(name)
     verify_repos_reachable(urls)
@@ -914,8 +1071,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     up = sub.add_parser("up", help="Create (if needed) + start + provision + clone the project repo(s). "
-                                   "With no name, launches a config-less base VM called 'default'.")
-    up.add_argument("project", nargs="?", default="default")
+                                   "New names (and a bare 'up' with no 'default' VM yet) run the create wizard first.")
+    up.add_argument("project", nargs="?")
+
+    create = sub.add_parser("create", help="Wizard: add or edit a project entry in projects.toml")
+    create.add_argument("project", nargs="?")
 
     sub.add_parser("down", help="Stop the VM").add_argument("project", nargs="?", default="default")
     sub.add_parser("ssh", help="Open an interactive shell (cwd = ~/code/<primary-repo>)").add_argument("project", nargs="?", default="default")
@@ -945,6 +1105,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {
     "up": cmd_up,
+    "create": cmd_create,
     "down": cmd_down,
     "ssh": cmd_ssh,
     "claude": cmd_claude,

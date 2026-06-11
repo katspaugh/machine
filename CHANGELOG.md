@@ -8,6 +8,14 @@ by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- `machine create [name]`: an interactive wizard that writes a project entry
+  to `projects.toml` (repos, profiles, shell, agent forwarding) or edits an
+  existing one — prompts default to the entry's current values, and comments
+  elsewhere in the file are preserved. `machine up <new-name>` and a bare
+  `machine up` (when no `default` VM or entry exists yet) launch the wizard
+  first, then continue into provisioning; `machine up default` keeps the
+  zero-config scratch-VM behavior. Unknown names no longer get the bare
+  "create a base VM? [y/N]" prompt.
 - Per-project `forward_agent = false` in `projects.toml`: the generated Lima
   template overrides `ssh.forwardAgent`, so the VM gets no channel to the host
   SSH agent — pair it with a per-repo deploy key for the strictest setup.
