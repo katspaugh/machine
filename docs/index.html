@@ -71,6 +71,7 @@
               <span class="label">copy</span>
             </button>
           </div>
+          <p class="hero-platform">requires macOS 13+ · apple silicon or intel · guests are ubuntu 24.04</p>
         </div>
       </div>
 
@@ -318,6 +319,13 @@
       cross-project bleed. Use both — a project VM can run Docker and devcontainers inside Linux,
       while your Mac only runs <code>machine</code>.
     </p>
+    <p class="section-intro">
+      And Claude Code's built-in sandbox? It fences single commands on your host;
+      a VM hands the agent a separate machine with nothing of yours on it. The two
+      compose — the full comparison (built-in sandboxing, devcontainers, Tart,
+      Apple's <code>container</code>) is in
+      <a href="/sandboxing-claude-code/#comparison">Sandboxing Claude Code</a>.
+    </p>
 
     <div class="diagram-captions captions-2">
       <div class="cap">
@@ -539,6 +547,8 @@
         </button>
       </div>
       <p class="install-alt">
+        Requires macOS 13 or newer, Apple Silicon or Intel — the VM layer is Apple's
+        Virtualization framework, so Linux and Windows hosts aren't supported.
         Prefer to clone? <a href="https://github.com/katspaugh/machine#setup">git clone the repo</a> — same code, dev mode.
         Read the <a href="https://github.com/katspaugh/homebrew-machine/blob/main/Formula/machine.rb">formula</a>
         or <a href="https://github.com/katspaugh/machine/blob/main/docs/TAP.md">verify the release</a> before installing.
@@ -574,6 +584,7 @@
           <li><a href="/docs/#quickstart">Quickstart</a></li>
           <li><a href="/docs/#setup">Configuration</a></li>
           <li><a href="/docs/#commands">CLI reference</a></li>
+          <li><a href="/docs/#troubleshooting">Troubleshooting</a></li>
         </ul>
       </div>
       <div class="foot-col">
