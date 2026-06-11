@@ -207,7 +207,7 @@
           <li>cloud-init applies the <code>mode: data</code> dotfiles and runs the provision scripts inside the VM.</li>
           <li>Clone the listed <code>repos</code> into <code>~/code/&lt;basename&gt;/</code>.</li>
         </ul>
-        <p>GitHub auth and commit signing both use the forwarded SSH agent — private keys never leave the host; the VM only sees signatures and <code>ssh -A</code> proxied auth.</p>
+        <p>GitHub auth and commit signing both use the forwarded SSH agent. Private keys never leave the host — but forwarding cuts both ways: while a session is open, anything inside the VM can ask the agent to sign and authenticate with <strong>every</strong> key it holds, not just for this project's repos. See the <a href="#threat-model">threat model</a> for what that grants and <a href="#ssh-agent">Restricting the forwarded agent</a> for stricter setups.</p>
       </section>
 
       <section id="profiles">
@@ -238,6 +238,14 @@
           <li><code>GIT_SIGNING_PUBKEY_FILE=&lt;path&gt;</code></li>
           <li>Host <code>git config --global user.signingkey</code> — literal pubkey or path to a <code>.pub</code> file (default; whatever you sign host commits with).</li>
         </ol>
+
+        <h3>Restricting the forwarded agent</h3>
+        <p>Forwarding is the convenience default, and it is a real grant: an SSH agent performs arbitrary auth operations, so while a forwarded connection is open, anything inside the VM — a compromised dependency, a prompt-injected agent — can authenticate and sign as you with <strong>every</strong> key the agent holds. <code>git push</code> to any repo your key can access is in scope, not just this project's. Pick the friction that matches the trust level of the project:</p>
+        <ul>
+          <li><strong>Per-use approval (1Password agent).</strong> 1Password can require approval / Touch ID for each agent request and lets you choose how long an approval lasts (Settings → Developer → Security). Keep the window short for untrusted work, and an injected <code>git push</code> becomes a prompt you get to decline.</li>
+          <li><strong>Confirmation-gated key (Keychain agent).</strong> Load the key with <code>ssh-add -c ~/.ssh/id_ed25519</code> — the agent then asks for confirmation on every use. macOS needs an askpass helper to show the dialog (<code>brew install theseal/ssh-askpass/ssh-askpass</code>).</li>
+          <li><strong>No forwarding + a per-project deploy key (strictest).</strong> Set <code>forward_agent = false</code> for the project in <code>projects.toml</code> — the VM gets no channel to your agent at all. Generate a key inside the VM (<code>ssh-keygen -t ed25519</code>) and add it to the repo as a <a href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys">deploy key</a>; a compromised VM can then reach only that repo. Register the VM key as a signing key on GitHub (or disable <code>commit.gpgsign</code> in the VM) for commit signing. Takes effect on recreate, like the git params.</li>
+        </ul>
       </section>
 
       <section id="secrets">
@@ -260,7 +268,7 @@
         <h2><span class="num">11</span>Threat model</h2>
         <p>No host filesystem is mounted. Each project gets its own VM, so a compromise of one project can't reach another's code or env. The host exposes two narrow channels:</p>
         <ul>
-          <li>The forwarded <strong>SSH agent</strong> — auth and signing only; private keys stay on the host; the VM can only request signatures while it's running.</li>
+          <li>The forwarded <strong>SSH agent</strong> — private keys stay on the host and the VM can't read them, but it can <em>use</em> them while a forwarded connection is open: signing and auth with every key the agent holds, so a compromised VM could push to any repo your key authorizes, not just this project's. The isolation is read-protection of the key material, not a per-project scope — narrow the grant with per-use approval, <code>ssh-add -c</code>, or <code>forward_agent = false</code> + a deploy key (see <a href="#ssh-agent">Restricting the forwarded agent</a>).</li>
           <li><strong><code>machine secrets</code></strong> — pushes rendered 1Password Environments into tmpfs (no disk persistence).</li>
         </ul>
         <p>A fully compromised VM cannot read the 1Password vault — only the secrets a repo explicitly rendered, and only while that tmpfs lives. For a visual breakdown of what the VM can and cannot reach, see <a href="../#threat-model">Ghost in the machine</a> on the landing page.</p>

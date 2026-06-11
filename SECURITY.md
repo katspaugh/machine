@@ -1,6 +1,6 @@
 # Security policy
 
-`machine` is built around a threat model: one Lima VM per project, no host filesystem mount, secrets in tmpfs, and a forwarded SSH agent that never copies private keys into the guest. We take reports against that boundary seriously.
+`machine` is built around a threat model: one Lima VM per project, no host filesystem mount, secrets in tmpfs, and a forwarded SSH agent that never copies private keys into the guest — though while a forwarded connection is open, the guest can *use* every key the agent holds (auth and signing, for any repo the key authorizes). The README's [threat model](README.md#threat-model) spells out exactly what that grants and how to [restrict it](README.md#restricting-the-forwarded-agent). We take reports against that boundary seriously.
 
 ## Reporting a vulnerability
 
