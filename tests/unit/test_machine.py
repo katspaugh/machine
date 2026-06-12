@@ -679,6 +679,18 @@ class TestUpsertProjectEntry(_MachineTestCase):
         self.assertEqual(parsed["blog"]["repos"], ["git@github.com:me/new.git"])
         self.assertEqual(parsed["wallet"]["repos"], ["git@github.com:me/a.git"])
 
+    def test_replace_last_block_keeps_trailing_comment(self):
+        original = (
+            "[blog]\n"
+            'repos = ["git@github.com:me/blog.git"]\n'
+            "\n"
+            "# trailing note that must survive\n"
+        )
+        out = self.m.upsert_project_entry(
+            original, "blog", '[blog]\nrepos = ["git@github.com:me/new.git"]\n')
+        self.assertIn("# trailing note that must survive", out)
+        self.assertIn('repos = ["git@github.com:me/new.git"]', out)
+
     def test_replace_last_block(self):
         import tomllib
         original = (

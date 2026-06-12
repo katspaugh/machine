@@ -86,11 +86,13 @@ Run `machine doctor` to verify everything resolves.
 
 ## Setup
 
-No setup needed — `machine up` (or `machine up <name>` for any new name)
-launches the `machine create` wizard, which asks for repos, profiles, and
-shell, writes the entry to `~/.config/machine/projects.toml`, and continues
-straight into provisioning. `machine up default` skips the wizard and gives a
-config-less scratch VM. To author the config by hand instead:
+No setup needed — `machine up <name>` for a new name launches the
+`machine create` wizard, which asks for repos, profiles, and shell, writes
+the entry to `~/.config/machine/projects.toml`, and continues straight into
+provisioning. A bare `machine up` does the same on first run; once a
+`default` VM (or `[default]` entry) exists, it boots that non-interactively.
+`machine up default` always skips the wizard and gives a config-less scratch
+VM. To author the config by hand instead:
 
 ```sh
 machine init                  # writes ~/.config/machine/projects.toml from the bundled example
