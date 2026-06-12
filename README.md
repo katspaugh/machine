@@ -86,14 +86,21 @@ Run `machine doctor` to verify everything resolves.
 
 ## Setup
 
-No setup needed for a scratch VM — `machine up` launches a base VM named
-`default` out of the box (and `machine up <name>` offers to create an empty
-VM under any name). Add a config when you want repos cloned or profiles:
+No setup needed — `machine up <name>` for a new name launches the
+`machine create` wizard, which asks for repos, profiles, and shell, writes
+the entry to `~/.config/machine/projects.toml`, and continues straight into
+provisioning. A bare `machine up` does the same on first run; once a
+`default` VM (or `[default]` entry) exists, it boots that non-interactively.
+`machine up default` always skips the wizard and gives a config-less scratch
+VM. To author the config by hand instead:
 
 ```sh
 machine init                  # writes ~/.config/machine/projects.toml from the bundled example
 $EDITOR ~/.config/machine/projects.toml
 ```
+
+`machine create <name>` re-run on an existing project edits its entry —
+every prompt defaults to the current value.
 
 (In dev mode: `cp projects.toml.example projects.toml && $EDITOR projects.toml` from the repo root.)
 
@@ -164,8 +171,8 @@ Then `ssh lima-<project>` works everywhere.
 ## Quickstart
 
 ```sh
-machine up                 # zero-config: creates + starts a base VM named "default"
-machine up blog            # creates + starts + provisions VM "blog", clones the repo
+machine up blog            # new name: wizard writes the [blog] entry, then creates + starts + provisions VM "blog", clones the repo
+machine up default         # zero-config: creates + starts a base VM named "default", no wizard
 machine ssh blog           # interactive shell, cwd = ~/code/blog
 ```
 
@@ -203,7 +210,8 @@ host.
 
 | Command | What |
 |---|---|
-| `machine up [p]` | Create if needed, start, provision, clone the repo(s). Idempotent — re-running re-applies the provision scripts. No name → base VM `default`; unknown names offer an ad-hoc base VM. |
+| `machine up [p]` | Create if needed, start, provision, clone the repo(s). Idempotent — re-running re-applies the provision scripts. New names (and a bare `up` with no `default` VM yet) run the create wizard first; `up default` stays a config-less base VM. |
+| `machine create [p]` | Wizard: add a project entry to `projects.toml` (repos, profiles, shell, agent forwarding) — or edit an existing one; prompts default to current values, comments in the file are preserved. |
 | `machine down <p>` | Stop the VM (preserves disk). Re-provision in place with `machine up <p>` afterwards. |
 | `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). |
 | `machine claude <p>` | Launch `claude` in a tmux session in the VM (cwd = `~/code/<primary-repo>`). Detach with `ctrl-b d` — claude keeps running; re-run to reattach. Exiting `claude` ends the session. |

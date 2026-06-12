@@ -427,7 +427,7 @@
     <p class="section-eyebrow">// section 08 — lifecycle</p>
     <h2 class="section-title">Tend the machine.</h2>
     <p class="section-intro">
-      Eleven commands, no manifesto. Most days: <code>up</code>, ssh in, work, <code>down</code>.
+      Twelve commands, no manifesto. Most days: <code>up</code>, ssh in, work, <code>down</code>.
       Machines are meant to be boring — boot one, run Claude, run tests, and destroy it
       when the state no longer deserves trust.
     </p>
@@ -435,7 +435,11 @@
     <div class="cmd-grid">
       <div class="cmd-card">
         <div class="k">machine up <span class="sub">&lt;p&gt;</span></div>
-        <div class="v">Boot the VM. First time provisions; after that it's a warm restart.</div>
+        <div class="v">Boot the VM. First time provisions; after that it's a warm restart. New names run the create wizard first.</div>
+      </div>
+      <div class="cmd-card">
+        <div class="k">machine create <span class="sub">&lt;p&gt;</span></div>
+        <div class="v">Wizard: add a project to <code>projects.toml</code> — repos, profiles, shell — or edit an existing entry.</div>
       </div>
       <div class="cmd-card">
         <div class="k">machine ssh <span class="sub">&lt;p&gt;</span></div>

@@ -118,7 +118,7 @@
 
       <section id="setup">
         <h2><span class="num">03</span>Setup &amp; projects.toml</h2>
-        <p>No setup needed for a scratch VM — <code>machine up</code> launches a base VM named <code>default</code> out of the box. Add a config when you want repos cloned or profiles:</p>
+        <p>No setup needed — <code>machine up &lt;name&gt;</code> for a new name runs the <code>machine create</code> wizard, which asks for repos, profiles, and shell, writes the entry to <code>projects.toml</code>, and continues straight into provisioning. A bare <code>machine up</code> does the same on first run; once a <code>default</code> VM (or <code>[default]</code> entry) exists, it boots that non-interactively. <code>machine up default</code> always skips the wizard and gives a config-less scratch VM. Re-running <code>machine create &lt;name&gt;</code> on an existing project edits its entry — every prompt defaults to the current value. To author the config by hand instead:</p>
         <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine init                  <span class="cmt"># writes ~/.config/machine/projects.toml from the bundled example</span>
 <span class="prompt">$ </span>$EDITOR ~/.config/machine/projects.toml</code></pre>
         <p class="muted">In dev mode: <code>cp projects.toml.example projects.toml &amp;&amp; $EDITOR projects.toml</code> from the repo root.</p>
@@ -150,8 +150,8 @@
 
       <section id="quickstart">
         <h2><span class="num">04</span>Quickstart</h2>
-        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine up                 <span class="cmt"># zero-config: create + start a base VM named "default"</span>
-<span class="prompt">$ </span>machine up blog            <span class="cmt"># create + start + provision VM "blog", clone the repo</span>
+        <pre><div class="head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shell</span></div><code><span class="prompt">$ </span>machine up blog            <span class="cmt"># new name: wizard writes [blog], then create + start + provision, clone the repo</span>
+<span class="prompt">$ </span>machine up default         <span class="cmt"># zero-config: create + start a base VM named "default", no wizard</span>
 <span class="prompt">$ </span>machine ssh blog           <span class="cmt"># interactive shell, cwd = ~/code/blog</span></code></pre>
         <p>Host browser → VM web app: Lima auto-forwards any listening guest port to <code>127.0.0.1</code> on the host. The first <code>up</code> bakes the base disk and is the slow one — subsequent boots reuse it.</p>
         <div class="callout">
@@ -169,7 +169,8 @@
           <table>
             <thead><tr><th>command</th><th>what it does</th></tr></thead>
             <tbody>
-              <tr><td>machine up [p]</td><td class="desc">Create if needed, start, provision (base + profiles), clone the repo(s). Idempotent. No name → base VM <code>default</code>; unknown names offer an ad-hoc base VM.</td></tr>
+              <tr><td>machine up [p]</td><td class="desc">Create if needed, start, provision (base + profiles), clone the repo(s). Idempotent. New names (and a bare <code>up</code> with no <code>default</code> VM yet) run the create wizard first; <code>up default</code> stays a config-less base VM.</td></tr>
+              <tr><td>machine create [p]</td><td class="desc">Wizard: add a project entry to <code>projects.toml</code> (repos, profiles, shell, agent forwarding) — or edit an existing one; prompts default to current values, comments in the file are preserved.</td></tr>
               <tr><td>machine down &lt;p&gt;</td><td class="desc">Stop the VM (preserves disk). Re-provision in place with <code>machine up</code> afterwards.</td></tr>
               <tr><td>machine ssh &lt;p&gt;</td><td class="desc">Interactive shell, cwd = <code>~/code/&lt;primary-repo&gt;</code>.</td></tr>
               <tr><td>machine claude &lt;p&gt;</td><td class="desc">Launch <code>claude</code> in a tmux session, cwd = <code>~/code/&lt;primary-repo&gt;</code>. Detach with <code>ctrl-b d</code> — claude keeps running; re-run to reattach.</td></tr>
