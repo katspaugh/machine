@@ -1,0 +1,12 @@
+# .machine.toml - repo-local machine config. Every key is optional.
+# Omit name to derive it from the directory basename.
+# Omit repos to use this repo's git origin remote.
+
+# name = "my-app"
+# repos = ["git@github.com:you/my-app.git"]
+# profiles = ["cypress"]
+# shell = "bash"
+# forward_agent = false
+# cpus = 8
+# memory = "16GiB"
+# disk = "60GiB"

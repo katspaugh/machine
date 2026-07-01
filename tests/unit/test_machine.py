@@ -223,14 +223,125 @@ class TestZeroConfig(unittest.TestCase):
             {"default_profile": "cypress"}, "default")
         self.assertEqual((urls, profiles), ([], ["cypress"]))
 
-    def test_parser_defaults_project_to_default(self):
+    def test_parser_defaults_project_to_none(self):
         ap = self.m.build_parser()
         for cmd in ("down", "ssh", "claude", "destroy", "secrets"):
-            self.assertEqual(ap.parse_args([cmd]).project, "default", cmd)
+            self.assertIsNone(ap.parse_args([cmd]).project, cmd)
 
     def test_parser_run_still_requires_project(self):
         with self.assertRaises(SystemExit):
             self.m.build_parser().parse_args(["run"])
+
+
+
+class TestLocalMachineToml(_MachineTestCase):
+    def _local_dir(self, name: str = "My App"):
+        d = Path(self.tmp.name) / name
+        d.mkdir()
+        return d
+
+    def test_slugify_name(self):
+        self.assertEqual(self.m.slugify_name("My App"), "my-app")
+        self.assertEqual(self.m.slugify_name("---"), "")
+
+    def test_read_local_project_absent_returns_none(self):
+        with contextlib.chdir(self.tmp.name):
+            self.assertIsNone(self.m.read_local_project())
+
+    def test_read_local_project_uses_name_key(self):
+        d = self._local_dir()
+        (d / ".machine.toml").write_text('name = "local-app"\nrepos = []\n')
+        with contextlib.chdir(d):
+            self.assertEqual(self.m.read_local_project(), ("local-app", {"repos": []}))
+
+    def test_read_local_project_uses_sanitized_dir_basename(self):
+        d = self._local_dir("My App")
+        (d / ".machine.toml").write_text('repos = []\n')
+        with contextlib.chdir(d):
+            self.assertEqual(self.m.read_local_project()[0], "my-app")
+
+    def test_read_local_project_rejects_invalid_name_key(self):
+        d = self._local_dir()
+        (d / ".machine.toml").write_text('name = "Bad_Name"\n')
+        with contextlib.chdir(d), self.assertRaises(SystemExit):
+            self.m.read_local_project()
+
+    def test_read_local_project_rejects_empty_slug(self):
+        d = self._local_dir("---")
+        (d / ".machine.toml").write_text("")
+        with contextlib.chdir(d), \
+             mock.patch.object(self.m, "cwd_git_remote", return_value=None), \
+             self.assertRaises(SystemExit):
+            self.m.read_local_project()
+
+    def test_read_local_project_preserves_explicit_repos(self):
+        d = self._local_dir()
+        (d / ".machine.toml").write_text(
+            'repos = ["git@github.com:org/other.git"]\n')
+        with contextlib.chdir(d), mock.patch.object(self.m, "cwd_git_remote") as remote:
+            name, entry = self.m.read_local_project()
+        self.assertEqual(name, "my-app")
+        self.assertEqual(entry["repos"], ["git@github.com:org/other.git"])
+        remote.assert_not_called()
+
+    def test_read_local_project_folds_origin_when_repos_omitted(self):
+        d = self._local_dir()
+        (d / ".machine.toml").write_text("")
+        with contextlib.chdir(d), \
+             mock.patch.object(self.m, "cwd_git_remote", return_value="git@github.com:me/app.git"):
+            self.assertEqual(
+                self.m.read_local_project()[1]["repos"],
+                ["git@github.com:me/app.git"],
+            )
+
+    def test_read_local_project_uses_empty_repos_without_origin(self):
+        d = self._local_dir()
+        (d / ".machine.toml").write_text("")
+        with contextlib.chdir(d), \
+             mock.patch.object(self.m, "cwd_git_remote", return_value=None):
+            self.assertEqual(self.m.read_local_project()[1]["repos"], [])
+
+    def test_load_projects_overlay_adds_local_entry(self):
+        d = self._local_dir()
+        (d / ".machine.toml").write_text('name = "local"\nrepos = []\n')
+        with contextlib.chdir(d):
+            self.assertIn("local", self.m.load_projects())
+
+    def test_load_projects_overlay_overrides_projects_file(self):
+        d = self._local_dir()
+        (d / ".machine.toml").write_text(
+            'name = "blog"\nrepos = ["git@github.com:me/local.git"]\n')
+        with contextlib.chdir(d):
+            cfg = self.m.load_projects()
+            file_cfg = self.m.load_projects_file()
+        self.assertEqual(cfg["blog"]["repos"], ["git@github.com:me/local.git"])
+        self.assertEqual(file_cfg["blog"]["repos"], ["git@github.com:me/blog.git"])
+
+    def test_resolve_up_project_bare_uses_local_without_wizard(self):
+        d = self._local_dir()
+        (d / ".machine.toml").write_text('name = "local"\nrepos = []\n')
+        with contextlib.chdir(d), \
+             mock.patch.object(self.m, "run_create_wizard") as wizard, \
+             mock.patch.object(self.m, "vm_exists", return_value=False):
+            self.assertEqual(self.m.resolve_up_project(self.m.load_projects(), None), "local")
+        wizard.assert_not_called()
+
+    def test_resolve_up_project_named_local_uses_config_without_wizard(self):
+        d = self._local_dir()
+        (d / ".machine.toml").write_text('name = "local"\nrepos = []\n')
+        with contextlib.chdir(d), \
+             mock.patch.object(self.m, "run_create_wizard") as wizard, \
+             mock.patch.object(self.m, "vm_exists", return_value=False):
+            self.assertEqual(self.m.resolve_up_project(self.m.load_projects(), "local"), "local")
+        wizard.assert_not_called()
+
+    def test_default_project_uses_local_name_or_default(self):
+        with contextlib.chdir(self.tmp.name):
+            self.assertEqual(self.m.default_project(), "default")
+        d = self._local_dir()
+        (d / ".machine.toml").write_text('name = "local"\nrepos = []\n')
+        with contextlib.chdir(d):
+            self.assertEqual(self.m.default_project(), "local")
 
 
 class TestCloneWarnings(_MachineTestCase):

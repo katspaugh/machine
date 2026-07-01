@@ -102,6 +102,33 @@ $EDITOR ~/.config/machine/projects.toml
 `machine create <name>` re-run on an existing project edits its entry —
 every prompt defaults to the current value.
 
+### `.machine.toml`
+
+For config that travels with a repo, commit a `.machine.toml` at the repo root.
+It uses the same flat keys as one `projects.toml` entry, plus optional `name`:
+
+```toml
+name = "my-app"
+profiles = ["cypress"]
+shell = "bash"
+forward_agent = false
+cpus = 8
+memory = "16GiB"
+disk = "60GiB"
+# repos = ["git@github.com:you/my-app.git"]
+```
+
+Every key is optional. If `name` is omitted, `machine` derives it from the
+directory basename (`My App` -> `my-app`). If `repos` is omitted, `machine up`
+uses the current repo's `origin` remote; with no remote, it creates a code-less
+VM and prints a note.
+
+From that directory, bare commands target the local project: `machine up`,
+`machine ssh`, `machine claude`, `machine down`, `machine destroy`, and
+`machine secrets`. Outside the directory, `machine` cannot read the local file,
+so name-addressing a VM may open at `$HOME` instead of the repo; add the project
+to `projects.toml` when you need to use it from anywhere.
+
 (In dev mode: `cp projects.toml.example projects.toml && $EDITOR projects.toml` from the repo root.)
 
 Example `projects.toml`:
@@ -212,14 +239,14 @@ host.
 |---|---|
 | `machine up [p]` | Create if needed, start, provision, clone the repo(s). Idempotent — re-running re-applies the provision scripts. New names (and a bare `up` with no `default` VM yet) run the create wizard first; `up default` stays a config-less base VM. |
 | `machine create [p]` | Wizard: add a project entry to `projects.toml` (repos, profiles, shell, agent forwarding) — or edit an existing one; prompts default to current values, comments in the file are preserved. |
-| `machine down <p>` | Stop the VM (preserves disk). Re-provision in place with `machine up <p>` afterwards. |
-| `machine ssh <p>` | Interactive shell (cwd = `~/code/<primary-repo>`). |
-| `machine claude <p>` | Launch `claude` in a tmux session in the VM (cwd = `~/code/<primary-repo>`). Detach with `ctrl-b d` — claude keeps running; re-run to reattach. Exiting `claude` ends the session. |
+| `machine down [p]` | Stop the VM (preserves disk). Re-provision in place with `machine up [p]` afterwards. |
+| `machine ssh [p]` | Interactive shell (cwd = `~/code/<primary-repo>`). |
+| `machine claude [p]` | Launch `claude` in a tmux session in the VM (cwd = `~/code/<primary-repo>`). Detach with `ctrl-b d` — claude keeps running; re-run to reattach. Exiting `claude` ends the session. |
 | `machine run <p> <cmd>...` | Run a command in the VM (cwd = `~/code/<primary-repo>`). stdio is passed straight through, so full-screen TUIs work too — e.g. `machine run wallet hx` launches the [Helix](https://helix-editor.com/) editor inside the machine, in the project's repo, to view and edit any file. |
 | `machine list` | List VMs (`limactl list`) plus configured-but-not-yet-created projects. |
-| `machine destroy <p>` | Delete the VM. `-y` skips confirmation. |
+| `machine destroy [p]` | Delete the VM. `-y` skips confirmation. |
 | `machine bake` | Build/refresh the cached base disk in `~/.cache/machine` used by `up`. `--force` rebuilds even if the cache hash is fresh. |
-| `machine secrets <p> [--repo <r>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)). `--clear` wipes them. |
+| `machine secrets [p] [--repo <r>]` | Render 1Password Environment(s) into VM tmpfs ([1Password env injection](#1password-env-injection)). `--clear` wipes them. |
 | `machine init` | Write `projects.toml` to `~/.config/machine/` from the bundled example. |
 | `machine doctor` | Preflight host checks: lima, SSH agent keys, git identity, signing-key resolution, `op` CLI note, `projects.toml` presence. |
 

@@ -98,7 +98,7 @@ def configure_ssh_agent() -> None:
 
 
 # --- Projects TOML helpers -------------------------------------------------
-def load_projects() -> dict[str, Any]:
+def load_projects_file() -> dict[str, Any]:
     if not PROJECTS_FILE.is_file():
         return {}
     try:
@@ -109,6 +109,86 @@ def load_projects() -> dict[str, Any]:
         return tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         die(f"invalid TOML in {PROJECTS_FILE}: {e}")
+
+
+def slugify_name(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+
+
+def cwd_git_remote() -> str | None:
+    r = subprocess.run(
+        ["git", "config", "--get", "remote.origin.url"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return None
+    remote = r.stdout.strip()
+    return remote or None
+
+
+def read_local_project() -> tuple[str, dict[str, Any]] | None:
+    path = Path.cwd() / ".machine.toml"
+    if not path.is_file():
+        return None
+    try:
+        text = path.read_text()
+    except OSError as e:
+        die(f"cannot read {path}: {e.strerror or e}")
+    try:
+        entry = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        die(f"invalid TOML in {path}: {e}")
+
+    raw_name = entry.pop("name", None)
+    if raw_name is not None:
+        if not isinstance(raw_name, str):
+            die(f"invalid project name {raw_name!r} (use a-z, 0-9, hyphen)")
+        validate_name(raw_name)
+        name = raw_name
+    else:
+        name = slugify_name(Path.cwd().name)
+        if not name:
+            die("current directory name cannot be used as a project name; "
+                "set name in .machine.toml")
+
+    if "repos" not in entry:
+        remote = cwd_git_remote()
+        entry["repos"] = [remote] if remote else []
+    return name, entry
+
+
+def local_project_name() -> str | None:
+    local = read_local_project()
+    return local[0] if local else None
+
+
+def default_project() -> str:
+    return local_project_name() or "default"
+
+
+def local_project_without_repo_source(name: str) -> bool:
+    path = Path.cwd() / ".machine.toml"
+    if not path.is_file():
+        return False
+    try:
+        data = tomllib.loads(path.read_text())
+    except OSError as e:
+        die(f"cannot read {path}: {e.strerror or e}")
+    except tomllib.TOMLDecodeError as e:
+        die(f"invalid TOML in {path}: {e}")
+    if "repos" in data:
+        return False
+    local = read_local_project()
+    return bool(local and local[0] == name and not local[1].get("repos"))
+
+
+def load_projects() -> dict[str, Any]:
+    cfg = load_projects_file()
+    local = read_local_project()
+    if local:
+        name, entry = local
+        cfg[name] = entry
+    return cfg
 
 
 def get_project(cfg: dict[str, Any], name: str) -> dict[str, Any]:
@@ -714,6 +794,9 @@ def resolve_up_project(cfg: dict[str, Any], name: str | None) -> str:
     entry nor a VM — the create wizard runs first so the project lands in
     projects.toml. Explicit `up default` stays the zero-config scratch VM."""
     if name is None:
+        local = local_project_name()
+        if local:
+            return local
         if isinstance(cfg.get("default"), dict) or vm_exists("default"):
             return "default"
         return run_create_wizard()
@@ -741,6 +824,12 @@ def cmd_up(args: argparse.Namespace) -> int:
     if args.project is not None:
         validate_name(args.project)
     name = resolve_up_project(load_projects(), args.project)
+    local_name = local_project_name()
+    if local_name == name:
+        if name in load_projects_file():
+            print(f".machine.toml shadows [{name}] in projects.toml — using the local file")
+        if local_project_without_repo_source(name):
+            print("no repos in .machine.toml and no git remote — creating a code-less VM")
     # Reload: the wizard may have just written this project's entry.
     urls, profiles = resolve_up_target(load_projects(), name)
     close_lima_ssh_master(name)
@@ -799,7 +888,7 @@ def cmd_up(args: argparse.Namespace) -> int:
 
 
 def cmd_down(args: argparse.Namespace) -> int:
-    name = args.project
+    name = args.project or default_project()
     if not vm_exists(name):
         die(f"VM '{name}' does not exist")
     status = subprocess.run(
@@ -836,7 +925,7 @@ def _primary_repo_workdir(name: str) -> str | None:
 
 
 def cmd_ssh(args: argparse.Namespace) -> int:
-    name = args.project
+    name = args.project or default_project()
     _heal_stale_agent_master(name)
     workdir = _primary_repo_workdir(name)
     cmd = ["limactl", "shell"]
@@ -847,7 +936,7 @@ def cmd_ssh(args: argparse.Namespace) -> int:
 
 
 def cmd_claude(args: argparse.Namespace) -> int:
-    name = args.project
+    name = args.project or default_project()
     _heal_stale_agent_master(name)
     workdir = _primary_repo_workdir(name)
     cmd = ["limactl", "shell"]
@@ -892,7 +981,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_destroy(args: argparse.Namespace) -> int:
-    name = args.project
+    name = args.project or default_project()
     if not args.force:
         try:
             ans = input(f"Destroy VM '{name}'? [y/N] ")
@@ -1008,7 +1097,7 @@ def sync_one_env(vm: str, env_id: str, repo: str) -> bool:
 def cmd_secrets(args: argparse.Namespace) -> int:
     if args.clear:
         return cmd_secrets_clear(args)
-    name = args.project
+    name = args.project or default_project()
     if not shutil.which("op"):
         die("'op' CLI required (brew install 1password-cli)")
     # `|| true` swallows find's own exit code (~/code may not exist yet on a
@@ -1054,7 +1143,7 @@ def cmd_secrets(args: argparse.Namespace) -> int:
 
 
 def cmd_secrets_clear(args: argparse.Namespace) -> int:
-    name = args.project
+    name = args.project or default_project()
     if not args.repo:
         body = (
             'dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dev-secrets"\n'
@@ -1113,9 +1202,9 @@ def build_parser() -> argparse.ArgumentParser:
     create = sub.add_parser("create", help="Wizard: add or edit a project entry in projects.toml")
     create.add_argument("project", nargs="?")
 
-    sub.add_parser("down", help="Stop the VM").add_argument("project", nargs="?", default="default")
-    sub.add_parser("ssh", help="Open an interactive shell (cwd = ~/code/<primary-repo>)").add_argument("project", nargs="?", default="default")
-    sub.add_parser("claude", help="Launch `claude` in a tmux session (re-run to reattach)").add_argument("project", nargs="?", default="default")
+    sub.add_parser("down", help="Stop the VM").add_argument("project", nargs="?")
+    sub.add_parser("ssh", help="Open an interactive shell (cwd = ~/code/<primary-repo>)").add_argument("project", nargs="?")
+    sub.add_parser("claude", help="Launch `claude` in a tmux session (re-run to reattach)").add_argument("project", nargs="?")
     run_p = sub.add_parser("run", help="Run a non-interactive command in the VM")
     run_p.add_argument("project")
     run_p.add_argument("argv", nargs=argparse.REMAINDER)
@@ -1123,14 +1212,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="List VMs (limactl list) + configured-but-missing projects")
 
     destroy = sub.add_parser("destroy", help="Delete the VM (irreversible)")
-    destroy.add_argument("project", nargs="?", default="default")
+    destroy.add_argument("project", nargs="?")
     destroy.add_argument("-y", "--force", action="store_true", help="Skip confirmation")
 
     bake_p = sub.add_parser("bake", help="Build/refresh the cached base image used by 'up'")
     bake_p.add_argument("--force", action="store_true", help="Rebuild even if the cache is fresh")
 
     sec = sub.add_parser("secrets", help="Render 1Password Environment(s) into VM tmpfs")
-    sec.add_argument("project", nargs="?", default="default")
+    sec.add_argument("project", nargs="?")
     sec.add_argument("--repo", help="Only this repo (default: all repos with `use op_env` .envrc)")
     sec.add_argument("--clear", action="store_true", help="Wipe rendered secrets from VM tmpfs")
 

@@ -8,6 +8,9 @@ by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- Repo-local `.machine.toml` config: bare `machine up` can infer a project from
+  the current directory, use the repo's `origin` remote when `repos` is omitted,
+  and make bare `ssh`/`claude`/`down`/`destroy`/`secrets` target that local VM.
 - `machine create [name]`: an interactive wizard that writes a project entry
   to `projects.toml` (repos, profiles, shell, agent forwarding) or edits an
   existing one — prompts default to the entry's current values, and comments

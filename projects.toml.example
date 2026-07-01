@@ -16,6 +16,7 @@
 #   memory   = "16GiB"                # defaults (4 CPUs / 8GiB / 30GiB). Bare integers for
 #   disk     = "60GiB"                # memory/disk mean GiB. Take effect when the VM is (re)created.
 #
+# For repo-local config, commit a .machine.toml instead; see .machine.toml.example.
 # Each profile is a templates/<name>.yaml + provision/<name>.sh pair.
 # Each repo is cloned into ~/code/<basename(<git-url>)>/ inside the VM.
 # With multiple repos, the first is the "primary" — `machine ssh <name>` opens at its dir.
