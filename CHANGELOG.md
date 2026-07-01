@@ -7,6 +7,8 @@ by `scripts/release.sh`.
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-07-01
+
 ### Added
 - Repo-local `.machine.toml` config: bare `machine up` can infer a project from
   the current directory, use the repo's `origin` remote when `repos` is omitted,
@@ -108,7 +110,8 @@ by `scripts/release.sh`.
 - The Tauri GUI, its Homebrew cask, and the DMG release workflow — `machine`
   is now CLI-only.
 
-[Unreleased]: https://github.com/katspaugh/machine/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/katspaugh/machine/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/katspaugh/machine/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/katspaugh/machine/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/katspaugh/machine/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/katspaugh/machine/compare/v0.2.0...v0.2.1
