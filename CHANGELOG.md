@@ -7,6 +7,16 @@ by `scripts/release.sh`.
 
 ## [Unreleased]
 
+### Added
+- Claude Code's built-in Bash sandbox is now enabled by default inside every VM
+  as defense-in-depth. `provision/base.sh` installs its Linux deps
+  (`bubblewrap`, `socat`) and, on Ubuntu 24.04, adds the `/etc/apparmor.d/bwrap`
+  profile that lets `bwrap` create the user namespaces the sandbox needs
+  (without it, the sandbox silently falls back to unsandboxed). `git` and
+  `docker` are excluded from the sandbox — git needs the forwarded SSH agent to
+  sign and push, docker is sandbox-incompatible — and `failIfUnavailable` makes
+  a missing sandbox a hard startup error rather than a silent fallback.
+
 ## [0.2.4] — 2026-07-01
 
 ### Added

@@ -49,15 +49,26 @@ if ! plugins_provisioned; then
   done
 fi
 
-# Settings: defaultMode + the enabled-plugin map.
+# Settings: defaultMode + enabled-plugin map + built-in sandbox.
+# The sandbox is a real defense-in-depth layer inside the VM: git and docker
+# run outside it (git needs the forwarded SSH-agent socket for signing/push;
+# docker is sandbox-incompatible). failIfUnavailable makes a missing sandbox a
+# hard failure rather than a silent unsandboxed fallback — base.sh installs the
+# bubblewrap/socat deps and the 24.04 AppArmor profile that back that promise.
+# Generated via python3 (a base dep) so the nested object stays valid JSON.
 mkdir -p "$HOME/.claude"
-{
-  printf '{\n  "permissions": { "defaultMode": "auto" },\n  "enabledPlugins": {\n'
-  first=1
-  for p in $PLUGINS; do
-    [ "$first" -eq 1 ] || printf ',\n'
-    printf '    "%s@%s": true' "$p" "$MARKETPLACE_ID"
-    first=0
-  done
-  printf '\n  }\n}\n'
-} > "$HOME/.claude/settings.json"
+MARKETPLACE_ID="$MARKETPLACE_ID" PLUGINS="$PLUGINS" python3 - > "$HOME/.claude/settings.json" <<'EOF'
+import json, os
+mid = os.environ["MARKETPLACE_ID"]
+plugins = os.environ["PLUGINS"].split()
+settings = {
+    "permissions": {"defaultMode": "auto"},
+    "enabledPlugins": {f"{p}@{mid}": True for p in plugins},
+    "sandbox": {
+        "enabled": True,
+        "excludedCommands": ["git", "docker"],
+        "failIfUnavailable": True,
+    },
+}
+print(json.dumps(settings, indent=2))
+EOF

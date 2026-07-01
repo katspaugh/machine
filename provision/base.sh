@@ -40,13 +40,35 @@ add_repo nodesource https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
 apt-get update -qq || true
 apt-get install -y --no-install-recommends \
   build-essential ca-certificates curl gnupg jq xz-utils unzip git zsh \
-  zsh-autosuggestions \
+  zsh-autosuggestions zsh-syntax-highlighting \
   ripgrep fd-find tmux less file python3 direnv \
+  bubblewrap socat \
   docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
   gh nodejs
 
 usermod -aG docker "$LIMA_USER"
 systemctl enable --now docker
+
+# --- Claude Code sandbox: Ubuntu 24.04 AppArmor allowance ---------------------
+# The built-in Bash sandbox (enabled in base-user.sh) uses bubblewrap, which
+# needs unprivileged user namespaces. Ubuntu 24.04's default AppArmor policy
+# denies bwrap that capability, so the sandbox would silently fall back to
+# unsandboxed. Grant it a profile when — and only when — the restriction is on.
+# Idempotent; non-fatal so an offline re-boot never fails the boot probe.
+if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+  if [ ! -f /etc/apparmor.d/bwrap ]; then
+    cat > /etc/apparmor.d/bwrap <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}
+EOF
+    systemctl reload apparmor || true
+  fi
+fi
 
 # --- corepack-managed package managers + npm globals -------------------------
 # apt-installed Node keeps globals in /usr/lib/node_modules (root-owned).

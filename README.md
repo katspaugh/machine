@@ -35,9 +35,11 @@ account, and your real working copy. Anything a command legitimately needs
 outside the rules lands you back at permission prompts — or at "run
 unsandboxed". A VM moves the whole session onto a separate machine instead of
 fencing commands on yours, and solves the environment problem (toolchain,
-browsers, Docker) in the same move. The two compose: the built-in sandbox
-keeps working inside the VM as defense-in-depth. Full comparison — including
-devcontainers, Tart, and Apple's `container` — in the
+browsers, Docker) in the same move. The two compose: each VM ships with the
+built-in sandbox already enabled inside it as defense-in-depth (`git` and
+`docker` run outside it — git needs the forwarded SSH agent to sign and push,
+docker is sandbox-incompatible). Full comparison — including devcontainers,
+Tart, and Apple's `container` — in the
 [sandboxing guide](https://runmachine.dev/sandboxing-claude-code/#comparison).
 
 ## Install
@@ -262,7 +264,7 @@ machine/
 │   ├── files -> ../files   #   symlinks (Lima v2 forbids '../' in file: locators)
 │   └── provision -> ../provision
 ├── provision/              # provision scripts run by cloud-init inside the VM
-│   ├── base.sh             #   apt repos + packages, Docker, Node, Claude, npm globals
+│   ├── base.sh             #   apt repos + packages, Docker, Node, Claude, sandbox deps, npm globals
 │   ├── base-user.sh        #   per-user setup (shell, claude plugins)
 │   ├── cypress.sh          #   profile scripts, one per templates/<name>.yaml
 │   └── supabase-fly.sh
