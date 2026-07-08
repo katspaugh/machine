@@ -10,6 +10,7 @@ limactl shell "$NAME" -- bash -lc 'command -v bwrap && command -v socat' >/dev/n
 # When Ubuntu 24.04's userns restriction is on, provision/base.sh must have
 # written the AppArmor profile that lets bwrap create user namespaces. Guard on
 # the sysctl so kernels without the restriction don't false-fail.
+# shellcheck disable=SC2016  # $(sysctl ...) must expand in the guest shell, not here
 limactl shell "$NAME" -- bash -lc '
   set -eu
   if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
