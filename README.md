@@ -456,6 +456,42 @@ locked 1Password agent serves nothing). If the agent was empty or locked when
 the VM connection was first opened, just re-run `machine ssh` — it detects the
 stale connection and rebuilds it against the live agent.
 
+**After a Mac reboot, the VM's keys are gone — auth comes back on its own,
+signing doesn't.** The macOS Keychain agent starts empty after a reboot
+(1Password users are unaffected — its agent serves keys whenever the app is
+unlocked). Your auth key reloads on first host `ssh`/`git` use via
+`AddKeysToAgent`/`UseKeychain` in `~/.ssh/config`, but a dedicated signing key
+never does: the only thing that uses it is git *inside the VM*, which can't
+load keys into the host agent. So pushes recover while commit signing stays
+broken. One-off fix — reload every Keychain-stored key:
+
+```sh
+ssh-add --apple-load-keychain
+```
+
+To make it automatic, run that at login via a LaunchAgent. Save this as
+`~/Library/LaunchAgents/ssh-add-keychain.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>            <string>ssh-add-keychain</string>
+	<key>ProgramArguments</key> <array>
+		<string>/usr/bin/ssh-add</string>
+		<string>--apple-load-keychain</string>
+	</array>
+	<key>RunAtLoad</key>        <true/>
+</dict>
+</plist>
+```
+
+then register it once: `launchctl bootstrap gui/$(id -u)
+~/Library/LaunchAgents/ssh-add-keychain.plist`. Forwarded sockets are live —
+keys appear inside running VM sessions the moment they're in the host agent,
+no reconnect needed.
+
 **Pushes work but commits show "Unverified" on GitHub.** GitHub registers SSH
 keys for *authentication* and *signing* separately. Add the same public key a
 second time at Settings → SSH and GPG keys → New SSH key, with Key type:
